@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { createKnowledgeCli } from "@dsptchr/knowledge";
+import { loadKnowledgeAdapter } from "@dsptchr/knowledge";
 import { homedir } from "node:os";
 import { costUsd, readMail, type CreateMessage } from "@dsptchr/agents";
 import { addDays, wallClockOf, wallClockToUtc } from "@dsptchr/core";
@@ -100,7 +100,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
   const knowledge =
     knowledgeConfig === undefined
       ? undefined
-      : createKnowledgeCli({ cli: knowledgeConfig.cli, root: knowledgeConfig.root, scope: knowledgeConfig.scope });
+      : await loadKnowledgeAdapter(knowledgeConfig.adapter, { root: knowledgeConfig.root, scope: knowledgeConfig.scope });
   const executor = createExecutor({ store, channel, ...(knowledge === undefined ? {} : { knowledge }) });
   const dispatcher = createDispatcher({ store, executor, policy, now });
   const protonConfig = instance.sources.proton;

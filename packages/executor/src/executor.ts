@@ -11,7 +11,7 @@ export class ExecutorError extends Error {
 export interface ExecutorDeps {
   store: Store;
   channel: Channel;
-  // The operator's knowledge base (via its CLI); every write is a local commit there.
+  // The operator's knowledge base through an instance-provided adapter (docs/knowledge.md).
   knowledge?: { write(request: { path: string; content: string; expected: string; append: boolean; message: string }): Promise<string> };
 }
 

@@ -119,7 +119,7 @@ export const sourcesSchema = z
       .optional(),
     knowledge: z
       .strictObject({
-        cli: z.string().startsWith("/", "must be an absolute path"),
+        adapter: z.string().startsWith("/", "must be an absolute path"),
         root: z.string().startsWith("/", "must be an absolute path"),
         scope: z.string().regex(/^[a-z0-9_-]{1,32}$/),
       })

@@ -30,6 +30,6 @@ icloud:
   birthdays: true                    # birthdays from contacts (CardDAV)
   interval_minutes: 30
 knowledge:
-  cli: /path/to/knowledge-cli                # knowledge CLI (Node script), run with the daemon's Node
-  root: /path/to/brain               # knowledge base root
+  adapter: /path/to/knowledge-adapter.ts  # your adapter module, see docs/knowledge.md
+  root: /path/to/notes               # knowledge base root, passed to the adapter
   scope: privat                      # this instance's scope; sensitive paths stay locked
