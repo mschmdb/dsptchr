@@ -24,3 +24,4 @@ export {
   type ProtonSource,
 } from "./proton/source.ts";
 export { createICloudSource, type Birthday, type ICloudOptions, type ICloudSource } from "./icloud/source.ts";
+export { createPlausibleSource, type SiteStats } from "./plausible.ts";

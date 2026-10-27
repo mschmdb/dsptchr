@@ -29,6 +29,7 @@ export interface OrchestratorDeps {
   calendar?: { forModel(): unknown[]; search(input: { query?: string | null | undefined; from: string; to: string }): unknown };
   birthdays?: { forModel(): unknown[]; all(): unknown[] };
   mail?: { forModel(): unknown };
+  analytics?: { forModel(): unknown[] };
   // Todos created from mail carry text a spoofed sender may control; the model gets a placeholder.
   isMailTodo?: (todoId: string) => boolean;
   knowledge?: { context(query: string): Promise<string>; read(path: string, section?: string): Promise<string> };
@@ -112,6 +113,9 @@ export function createOrchestrator(deps: OrchestratorDeps) {
         }
         if (scope === "birthdays") {
           return JSON.stringify({ birthdays: deps.birthdays?.all() ?? [] });
+        }
+        if (scope === "analytics") {
+          return JSON.stringify({ sites: deps.analytics?.forModel() ?? [] });
         }
         if (scope === "mail") {
           return JSON.stringify(deps.mail === undefined ? { mail: "not configured" } : deps.mail.forModel());

@@ -11,8 +11,9 @@ import { parsePolicy } from "@dsptchr/gate";
 import { openStore, type Store } from "@dsptchr/store";
 import { createBriefings } from "./briefings.ts";
 import { createDispatcher } from "./dispatch.ts";
-import { createICloudSource, createProtonSource, fetchGithubLogin, fetchRepoSnapshot, runProton, runServerHealth } from "@dsptchr/watchers";
+import { createICloudSource, createPlausibleSource, createProtonSource, fetchGithubLogin, fetchRepoSnapshot, runProton, runServerHealth } from "@dsptchr/watchers";
 import { guarded } from "./alerts.ts";
+import { ANALYTICS_SOURCE, createAnalyticsMonitor } from "./analytics.ts";
 import { createBackupJob } from "./backups.ts";
 import { BIRTHDAY_SOURCE, createBirthdayMonitor } from "./birthdays.ts";
 import { CALENDAR_SOURCE, createCalendarMonitor } from "./calendar.ts";
@@ -163,6 +164,25 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
           timeZone: instance.config.timezone,
         });
 
+  const plausibleConfig = instance.sources.plausible;
+  const analytics =
+    plausibleConfig === undefined
+      ? undefined
+      : await (async () => {
+          const plausible = createPlausibleSource({
+            baseUrl: plausibleConfig.url,
+            apiKey: await instance.secret(plausibleConfig.apiKey),
+            ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+          });
+          return createAnalyticsMonitor({
+            store,
+            sites: plausibleConfig.sites,
+            fetchStats: (site, today) => plausible.siteStats(site, today),
+            now,
+            timeZone: instance.config.timezone,
+          });
+        })();
+
   const orchestratorConfig = instance.config.orchestrator;
   const createMessage =
     orchestratorConfig === undefined
@@ -227,6 +247,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
           ...(calendar === undefined ? {} : { calendar }),
           ...(birthdays === undefined ? {} : { birthdays }),
           ...(knowledge === undefined ? {} : { knowledge }),
+          ...(analytics === undefined ? {} : { analytics }),
           ...(mail === undefined ? {} : { mail, isMailTodo: (id: string) => mail.isMailTodo(id) }),
         });
   const operator = createOperatorHandler({
@@ -256,6 +277,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
         ...(mail?.briefing() ?? []),
         ...(findings === 0 ? [] : [`Server health: ${findings} open ${findings === 1 ? "finding" : "findings"} (/health).`]),
         ...(github?.summary() ?? []),
+        ...(analytics?.briefing() ?? []),
       ];
     },
   });
@@ -305,6 +327,8 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
   const mailWatcher = mail === undefined ? undefined : guarded(mail, alerting(`${MAIL_SOURCE}:watcher`, "Mail watcher"));
   const birthdayWatcher =
     birthdays === undefined ? undefined : guarded(birthdays, alerting(`${BIRTHDAY_SOURCE}:watcher`, "Birthday watcher"));
+  const analyticsWatcher =
+    analytics === undefined ? undefined : guarded(analytics, alerting(`${ANALYTICS_SOURCE}:watcher`, "Plausible watcher"));
   const backups = createBackupJob({ store, dir: join(instance.dir, "backups"), keep: 14, now, timeZone });
 
   // Watchers may take minutes (SSH, many API calls); each runs beside the scheduler, never twice at once.
@@ -351,6 +375,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
       startWatcher(CALENDAR_SOURCE, calendarWatcher);
       startWatcher(BIRTHDAY_SOURCE, birthdayWatcher);
       startWatcher("backups", backups);
+      startWatcher(ANALYTICS_SOURCE, analyticsWatcher);
       startWatcher(MAIL_SOURCE, mailWatcher);
       const sent = (await scheduler.tick()) + (await briefings.tick());
       // Only a completed tick counts as alive; a throwing tick skips the beat.

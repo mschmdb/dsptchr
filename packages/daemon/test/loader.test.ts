@@ -230,6 +230,15 @@ describe("loadInstance", () => {
     expect(instance.sources.knowledge).toEqual({ adapter: "/opt/adapter.ts", root: "/brain", scope: "privat" });
   });
 
+  it("reads the plausible source", async () => {
+    writeInstance("private", {
+      "instance.yaml": "timezone: UTC\n",
+      "sources.yaml": "plausible:\n  url: https://stats.example.com\n  api_key: plausible_api_key\n  sites: [a.example.com]\n",
+    });
+    const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });
+    expect(instance.sources.plausible).toEqual({ url: "https://stats.example.com", apiKey: "plausible_api_key", sites: ["a.example.com"] });
+  });
+
   it("treats sources.yaml as optional", async () => {
     writeInstance("private", { "instance.yaml": "timezone: UTC\n" });
     const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });

@@ -117,6 +117,14 @@ export const sourcesSchema = z
         mailIntervalMinutes: p.mail_interval_minutes,
       }))
       .optional(),
+    plausible: z
+      .strictObject({
+        url: z.url({ protocol: /^https$/ }),
+        api_key: z.string().min(1),
+        sites: z.array(z.string().regex(/^[a-z0-9.-]{1,253}$/i)).min(1),
+      })
+      .transform((p) => ({ url: p.url, apiKey: p.api_key, sites: p.sites }))
+      .optional(),
     knowledge: z
       .strictObject({
         adapter: z.string().startsWith("/", "must be an absolute path"),
@@ -142,6 +150,7 @@ export const sourcesSchema = z
       .optional(),
   })
   .transform((s) => ({
+    ...(s.plausible === undefined ? {} : { plausible: s.plausible }),
     ...(s.knowledge === undefined ? {} : { knowledge: s.knowledge }),
     ...(s.icloud === undefined ? {} : { icloud: s.icloud }),
     ...(s.proton === undefined ? {} : { proton: s.proton }),
