@@ -61,12 +61,14 @@ export const sourcesSchema = z
       .strictObject({
         command: z.string().startsWith("/", "must be an absolute path"),
         args: z.array(z.string()).default(["run", "--dry"]),
+        hosts: z.array(z.string().min(1)).min(1),
         interval_minutes: z.number().int().min(5).max(1440).default(15),
         timeout_seconds: z.number().int().min(10).max(1800).default(300),
       })
       .transform((s) => ({
         command: s.command,
         args: s.args,
+        hosts: s.hosts,
         intervalMinutes: s.interval_minutes,
         timeoutSeconds: s.timeout_seconds,
       }))

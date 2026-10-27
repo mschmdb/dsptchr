@@ -99,6 +99,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
             runServerHealth({
               command: healthConfig.command,
               args: healthConfig.args,
+              hosts: healthConfig.hosts,
               timeoutMs: healthConfig.timeoutSeconds * 1000,
             }),
           intervalMs: healthConfig.intervalMinutes * 60_000,

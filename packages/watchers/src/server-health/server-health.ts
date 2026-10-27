@@ -5,6 +5,9 @@ export interface ServerHealthConfig {
   command: string;
   args: readonly string[];
   timeoutMs: number;
+  // The script may cover hosts of several instances (e.g. private and work). Only these
+  // hosts belong to this instance; everything else is dropped before it is stored or sent.
+  hosts: readonly string[];
 }
 
 export type RunCommand = (
@@ -60,9 +63,12 @@ export async function runServerHealth(config: ServerHealthConfig, run: RunComman
   if (!parsed.success) {
     throw new WatcherError(`server health: unexpected report format (${parsed.error.issues[0]?.path.join(".") ?? "root"})`);
   }
+  const allowed = new Set(config.hosts);
   return {
-    findings: parsed.data.findings.map((f) => ({ key: f.key, severity: f.severity, host: f.host, text: f.text })),
-    evaluatedHosts: Object.keys(parsed.data.hosts),
+    findings: parsed.data.findings
+      .filter((f) => allowed.has(f.host))
+      .map((f) => ({ key: f.key, severity: f.severity, host: f.host, text: f.text })),
+    evaluatedHosts: Object.keys(parsed.data.hosts).filter((host) => allowed.has(host)),
   };
 }
 

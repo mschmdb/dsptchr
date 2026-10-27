@@ -4,5 +4,8 @@ server_health:
   # Absolute paths only. For a script without the executable bit, run it through its interpreter.
   command: /usr/bin/python3
   args: ["/path/to/health-check.py", "run", "--dry"]
+  # Hosts of this instance. The script may also check other instances' hosts; those are dropped.
+  # External URL checks report the host "extern".
+  hosts: [host-a, host-b, extern]
   interval_minutes: 15
   timeout_seconds: 300

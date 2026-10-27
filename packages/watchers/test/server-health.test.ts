@@ -25,7 +25,7 @@ function fakeRun(result: { exitCode: number; stdout: string; stderr?: string } |
   return run;
 }
 
-const config = { command: "/opt/health/check", args: ["run", "--dry"], timeoutMs: 300_000 };
+const config = { command: "/opt/health/check", args: ["run", "--dry"], timeoutMs: 300_000, hosts: ["host-a", "host-c"] };
 
 describe("runServerHealth", () => {
   it("runs the configured command without a shell and parses the report", async () => {
@@ -34,6 +34,17 @@ describe("runServerHealth", () => {
 
     expect(run.calls).toEqual([{ file: "/opt/health/check", args: ["run", "--dry"], options: { timeoutMs: 300_000 } }]);
     expect(report.findings).toHaveLength(3);
+    expect(report.evaluatedHosts).toEqual(["host-a", "host-c"]);
+  });
+
+  it("drops findings and hosts outside the instance allowlist", async () => {
+    const mixed = {
+      ...REPORT,
+      findings: [...REPORT.findings, { key: "work-1:disk", severity: "crit", host: "work-1", text: "Disk full" }],
+      hosts: { ...REPORT.hosts, "work-1": "ok" },
+    };
+    const report = await runServerHealth(config, fakeRun({ exitCode: 0, stdout: JSON.stringify(mixed) }));
+    expect(report.findings.map((f) => f.host)).not.toContain("work-1");
     expect(report.evaluatedHosts).toEqual(["host-a", "host-c"]);
   });
 

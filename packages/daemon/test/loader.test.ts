@@ -147,15 +147,24 @@ describe("loadInstance", () => {
   it("reads the server health source with defaults", async () => {
     writeInstance("private", {
       "instance.yaml": "timezone: UTC\n",
-      "sources.yaml": "server_health:\n  command: /opt/health/check\n",
+      "sources.yaml": "server_health:\n  command: /opt/health/check\n  hosts: [host-a, extern]\n",
     });
     const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });
     expect(instance.sources.serverHealth).toEqual({
       command: "/opt/health/check",
       args: ["run", "--dry"],
+      hosts: ["host-a", "extern"],
       intervalMinutes: 15,
       timeoutSeconds: 300,
     });
+  });
+
+  it("requires a host allowlist for server health", async () => {
+    writeInstance("private", {
+      "instance.yaml": "timezone: UTC\n",
+      "sources.yaml": "server_health:\n  command: /opt/health/check\n",
+    });
+    await expect(loadInstance("private", { home, keychain: fakeKeychain({}) })).rejects.toThrow(/hosts/);
   });
 
   it("treats sources.yaml as optional", async () => {
@@ -167,7 +176,7 @@ describe("loadInstance", () => {
   it.each(["relative/check", "~/check", ""])("rejects a non-absolute command %j", async (command) => {
     writeInstance("private", {
       "instance.yaml": "timezone: UTC\n",
-      "sources.yaml": `server_health:\n  command: "${command}"\n`,
+      "sources.yaml": `server_health:\n  command: "${command}"\n  hosts: [host-a]\n`,
     });
     await expect(loadInstance("private", { home, keychain: fakeKeychain({}) })).rejects.toThrow(/sources.yaml/);
   });
