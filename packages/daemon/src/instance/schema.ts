@@ -29,6 +29,15 @@ export const instanceConfigSchema = z.strictObject({
       telegram: telegramSchema.optional(),
     })
     .default({}),
+  orchestrator: z
+    .strictObject({
+      api_key: z.string().min(1),
+      model: z.string().regex(/^claude-[a-z0-9-]+$/).default("claude-sonnet-5-5"),
+      effort: z.enum(["low", "medium", "high"]).default("low"),
+      daily_budget_usd: z.number().min(0).max(100).default(1),
+    })
+    .transform((o) => ({ apiKey: o.api_key, model: o.model, effort: o.effort, dailyBudgetUsd: o.daily_budget_usd }))
+    .optional(),
   heartbeat: z
     .strictObject({
       push_url: z.string().min(1),

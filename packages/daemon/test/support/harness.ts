@@ -56,7 +56,7 @@ export function harness(policy = POLICY): Harness {
 
 let counter = 0;
 
-export function text(value: string, conversation = "-1002"): InboundEvent {
+export function text(value: string, conversation = "-1002"): Extract<InboundEvent, { kind: "text" }> {
   counter++;
   return { kind: "text", id: `test:${counter}`, text: value, conversation, receivedAt: T0 };
 }

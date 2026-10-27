@@ -2,6 +2,7 @@ import type { InboundEvent } from "@dsptchr/channels";
 import { parseDue, splitTodoInput } from "@dsptchr/core";
 import type { Store, StoredAction } from "@dsptchr/store";
 import type { Dispatcher } from "./dispatch.ts";
+import type { OrchestratorOutcome } from "./orchestrator.ts";
 import { parseCommand, runCommand } from "./commands.ts";
 import { formatDue } from "./format.ts";
 
@@ -10,7 +11,14 @@ export interface OperatorHandlerDeps {
   dispatcher: Dispatcher;
   timeZone: string;
   now: () => number;
+  // Optional model-backed handling of free text; without it every free text is a todo.
+  orchestrator?: { handle(event: Extract<InboundEvent, { kind: "text" }>): Promise<OrchestratorOutcome> };
 }
+
+const FALLBACK_NOTES: Partial<Record<OrchestratorOutcome, string>> = {
+  unavailable: "Model unavailable, handled as plain todo.",
+  budget_exhausted: "Daily model budget used up, handled as plain todo.",
+};
 
 const STOP_WORDS = new Set(["stop", "stopp"]);
 const START_WORDS = new Set(["start", "resume", "weiter"]);
@@ -36,7 +44,7 @@ function shorten(text: string): string {
 }
 
 // Handles operator input from any channel. Every effect goes through the dispatcher.
-export function createOperatorHandler({ store, dispatcher, timeZone, now }: OperatorHandlerDeps) {
+export function createOperatorHandler({ store, dispatcher, timeZone, now, orchestrator }: OperatorHandlerDeps) {
   const reply = async (event: InboundEvent, text: string) =>
     ensureNotFailed(
       await dispatcher.dispatch({
@@ -81,6 +89,14 @@ export function createOperatorHandler({ store, dispatcher, timeZone, now }: Oper
       return;
     }
 
+    // The kill switch and commands above never depend on a model.
+    let note = "";
+    if (orchestrator !== undefined) {
+      const outcome = await orchestrator.handle(event);
+      if (outcome === "handled") return;
+      note = FALLBACK_NOTES[outcome] === undefined ? "" : `${FALLBACK_NOTES[outcome]}\n`;
+    }
+
     const input = splitTodoInput(event.text);
     if (input.text === "") return;
     let dueAt: number | undefined;
@@ -101,7 +117,10 @@ export function createOperatorHandler({ store, dispatcher, timeZone, now }: Oper
       }),
     );
     if (action.state === "executed") {
-      await reply(event, dueAt === undefined ? `Saved: ${input.text}` : `Saved: ${input.text} (due ${formatDue(dueAt, timeZone)})`);
+      await reply(
+        event,
+        `${note}${dueAt === undefined ? `Saved: ${input.text}` : `Saved: ${input.text} (due ${formatDue(dueAt, timeZone)})`}`,
+      );
     }
   }
 

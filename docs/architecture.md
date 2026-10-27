@@ -29,7 +29,7 @@ Watcher ──► Reader ──► Orchestrator ──► Gate ─────�
 
 ## Operator input
 
-Channel → inbox (SQLite) → operator handler → dispatcher. The channel confirms events only after the inbox stored them. Handlers run from the inbox with retries; events that keep failing end as `dead` and the operator is told.
+Channel → inbox (SQLite) → operator handler → dispatcher. Free text goes through the orchestrator (D-43); `stop`/`start` and `/` commands stay deterministic. The channel confirms events only after the inbox stored them. Handlers run from the inbox with retries; events that keep failing end as `dead` and the operator is told.
 
 ## Packages (pnpm workspace)
 
@@ -74,7 +74,7 @@ Do not depend on a password-manager SSH or secret agent that locks with the scre
 |---|---|---|
 | Reader | Haiku | no tools, structured output |
 | Classifier | Haiku | prompt differs from the orchestrator's |
-| Orchestrator | Sonnet | prompt caching for role and rules |
+| Orchestrator | Sonnet (Messages API, manual tool loop, D-42) | prompt caching for role and rules |
 | Updater | Sonnet, Opus for hard cases | code runs never below Sonnet |
 | Dream | Sonnet via Batch API | nightly, 50 % cheaper |
 

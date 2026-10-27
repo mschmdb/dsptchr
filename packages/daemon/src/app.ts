@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import type { CreateMessage } from "@dsptchr/agents";
 import { telegramChannel, type Channel } from "@dsptchr/channels";
 import { createExecutor } from "@dsptchr/executor";
 import { parsePolicy } from "@dsptchr/gate";
@@ -9,6 +10,7 @@ import { runServerHealth } from "@dsptchr/watchers";
 import { createHealthMonitor } from "./health.ts";
 import { createHeartbeat } from "./heartbeat.ts";
 import { createInbox, type Inbox } from "./inbox.ts";
+import { anthropicCreateMessage, createOrchestrator } from "./orchestrator.ts";
 import { InstanceError, type Instance } from "./instance/loader.ts";
 import { createOperatorHandler } from "./operator.ts";
 import { createReminderScheduler } from "./reminders.ts";
@@ -19,6 +21,8 @@ export interface AppOptions {
   pollTimeoutSeconds?: number;
   onHeartbeatError?: (error: string) => void;
   onWatcherError?: (error: string) => void;
+  // Test seam; production builds the client from the keychain API key.
+  createMessage?: CreateMessage;
 }
 
 export interface App {
@@ -31,6 +35,8 @@ export interface App {
 
 // Handled operator input stays in the inbox this long, then only its ID remains.
 const INBOX_RETENTION_MS = 7 * 86_400_000;
+// Chat memory the orchestrator sees is 6 h; a day is kept for debugging, then deleted.
+const CONVERSATION_RETENTION_MS = 86_400_000;
 
 // Wires one instance. Refuses to start without a policy: no policy, no actions.
 export async function createApp(instance: Instance, options: AppOptions = {}): Promise<App> {
@@ -79,7 +85,29 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
   });
   const executor = createExecutor({ store, channel });
   const dispatcher = createDispatcher({ store, executor, policy, now });
-  const operator = createOperatorHandler({ store, dispatcher, timeZone: instance.config.timezone, now });
+  const orchestratorConfig = instance.config.orchestrator;
+  const orchestrator =
+    orchestratorConfig === undefined
+      ? undefined
+      : createOrchestrator({
+          store,
+          dispatcher,
+          timeZone: instance.config.timezone,
+          now,
+          createMessage:
+            options.createMessage ?? anthropicCreateMessage((await instance.secret(orchestratorConfig.apiKey)).reveal()),
+          model: orchestratorConfig.model,
+          effort: orchestratorConfig.effort,
+          dailyBudgetUsd: orchestratorConfig.dailyBudgetUsd,
+          role: instance.role,
+        });
+  const operator = createOperatorHandler({
+    store,
+    dispatcher,
+    timeZone: instance.config.timezone,
+    now,
+    ...(orchestrator === undefined ? {} : { orchestrator }),
+  });
   const scheduler = createReminderScheduler({ store, dispatcher, now });
   const briefings = createBriefings({
     store,
@@ -120,6 +148,8 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
 
   const inbox = createInbox({
     store,
+    // Several model round trips fit; the Anthropic client times out each one after 45 s.
+    handlerTimeoutMs: orchestrator === undefined ? 60_000 : 180_000,
     handle: (event) => operator.handle(event),
     now,
     onDead: async (entryId) => {
@@ -140,6 +170,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
     inbox,
     tick: async () => {
       store.inbox.purgeDone(now() - INBOX_RETENTION_MS);
+      store.conversation.purgeBefore(now() - CONVERSATION_RETENTION_MS);
       startHealth();
       const sent = (await scheduler.tick()) + (await briefings.tick());
       // Only a completed tick counts as alive; a throwing tick skips the beat.

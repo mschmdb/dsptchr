@@ -187,6 +187,29 @@ describe("phase 1 milestone", () => {
     expect(JSON.stringify(app.store.audit.list())).not.toContain("HB-TOKEN");
   });
 
+  it("answers a free-text question through the orchestrator", async () => {
+    const dir = join(home, "test");
+    writeFileSync(
+      join(dir, "instance.yaml"),
+      `timezone: Europe/Berlin\norchestrator:\n  api_key: anthropic\nchannels:\n  telegram:\n    operator_user_id: ${OPERATOR}\n    group_id: ${GROUP}\n    bot_token: bot\n`,
+    );
+    app.close();
+    const instance = await loadInstance("test", { home, keychain: { read: async () => TOKEN } });
+    const usage = { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+    const createMessage = async () =>
+      ({ content: [{ type: "text", text: "Alles grün." }], stop_reason: "end_turn", usage }) as never;
+    app = await createApp(instance, { fetch: telegram.fetch, now: () => clock.now, pollTimeoutSeconds: 0, createMessage });
+
+    telegram.inbox.push([
+      { update_id: 40, message: { message_id: 1, from: { id: OPERATOR }, chat: { id: GROUP }, text: "wie ist die server health?" } },
+    ]);
+    await pump();
+
+    expect(app.store.todos.listActive()).toEqual([]);
+    expect(telegram.sent.at(-1)).toMatchObject({ text: "Alles grün." });
+    expect(app.store.runs.costSince(0)).toBeGreaterThan(0);
+  });
+
   it("persists the Telegram offset so restarts do not replay handled updates", async () => {
     telegram.inbox.push([
       { update_id: 10, message: { message_id: 1, from: { id: OPERATOR }, chat: { id: GROUP }, text: "Buy milk" } },

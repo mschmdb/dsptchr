@@ -181,6 +181,24 @@ describe("loadInstance", () => {
     await expect(loadInstance("private", { home, keychain: fakeKeychain({}) })).rejects.toThrow(/sources.yaml/);
   });
 
+  it("reads the orchestrator config with defaults", async () => {
+    writeInstance("private", { "instance.yaml": "timezone: UTC\norchestrator:\n  api_key: anthropic_api_key\n" });
+    const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });
+    expect(instance.config.orchestrator).toEqual({
+      apiKey: "anthropic_api_key",
+      model: "claude-sonnet-5-5",
+      effort: "low",
+      dailyBudgetUsd: 1,
+    });
+  });
+
+  it("rejects a negative orchestrator budget", async () => {
+    writeInstance("private", {
+      "instance.yaml": "timezone: UTC\norchestrator:\n  api_key: k\n  daily_budget_usd: -1\n",
+    });
+    await expect(loadInstance("private", { home, keychain: fakeKeychain({}) })).rejects.toThrow(/daily_budget_usd/);
+  });
+
   it("defaults to no briefings", async () => {
     writeInstance("private", { "instance.yaml": "timezone: UTC\n" });
     const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });

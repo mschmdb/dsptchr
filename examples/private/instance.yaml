@@ -11,3 +11,8 @@ briefings:
 heartbeat:
   push_url: heartbeat_push_url       # name of an entry in secrets.yaml
   interval_minutes: 5
+orchestrator:
+  api_key: anthropic_api_key         # name of an entry in secrets.yaml
+  model: claude-sonnet-5-5
+  effort: low                        # low | medium | high
+  daily_budget_usd: 1                # model calls stop for the day once reached
