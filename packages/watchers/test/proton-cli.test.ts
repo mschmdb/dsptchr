@@ -12,6 +12,10 @@ describe("buildProtonArgs", () => {
       { kind: "mail.list", folder: "all", to: "user+todo@example.com", limit: 20 },
       ["mail", "messages", "list", "--folder", "all", "--to", "user+todo@example.com", "--limit", "20"],
     ],
+    [
+      { kind: "mail.list", folder: "inbox", newerThan: "2h", limit: 50, page: 2 },
+      ["mail", "messages", "list", "--folder", "inbox", "--newer-than", "2h", "--limit", "50", "--page", "2"],
+    ],
     [{ kind: "mail.get", id: "aBc-_123==" }, ["mail", "messages", "get", "aBc-_123==", "--render", "text", "--strip-quotes"]],
     [
       { kind: "calendar.list", after: "2026-10-27", before: "2026-10-28" },
@@ -28,6 +32,7 @@ describe("buildProtonArgs", () => {
     { kind: "mail.list", folder: "inbox", to: "--folder=trash", limit: 5 },
     { kind: "mail.list", folder: "inbox", limit: 0 },
     { kind: "mail.list", folder: "inbox", limit: 1000 },
+    { kind: "mail.list", folder: "inbox", limit: 5, page: -1 },
     { kind: "calendar.list", after: "tomorrow", before: "2026-10-28" },
     { kind: "pass.list" } as unknown as ProtonCommand,
     { kind: "mail.list", folder: "trash", limit: 5 } as unknown as ProtonCommand,

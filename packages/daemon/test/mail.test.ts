@@ -14,13 +14,13 @@ const summary = (id: string, minutesAgo: number, fromAddress = "a@example.com", 
 
 function setup(options: { readings?: Record<string, MailReading>; budgetOk?: boolean; todoAddress?: string } = {}) {
   const h = harness();
-  const lists: MailSummary[][] = [];
+  const lists: { mails: MailSummary[]; complete: boolean }[] = [];
   const bodies = new Map<string, MailMessage>();
   const read: string[] = [];
   const monitor = createMailMonitor({
     store: h.store,
     dispatcher: h.dispatcher,
-    listMail: async () => lists.shift() ?? [],
+    listMail: async () => lists.shift() ?? { mails: [], complete: true },
     readMail: async (id) => {
       const message = bodies.get(id);
       if (message === undefined) throw new Error("unknown");
@@ -41,8 +41,8 @@ function setup(options: { readings?: Record<string, MailReading>; budgetOk?: boo
     bodies.set(s.id, { id: s.id, subject: s.subject, fromAddress: s.fromAddress, recipients, time: s.time, body });
     return s;
   };
-  const run = async (list: MailSummary[]) => {
-    lists.push(list);
+  const run = async (list: MailSummary[], complete = true) => {
+    lists.push({ mails: list, complete });
     const ran = await monitor.tick();
     h.clock.now += 15 * 60_000;
     return ran;
@@ -123,6 +123,29 @@ describe("mail monitor", () => {
   });
 });
 
+describe("mail cursor", () => {
+  it("does not advance past mail whose urgent alert could not be sent", async () => {
+    const h = setup({ readings: { Urgent: { category: "important", urgency: "now", actionNeeded: true, summary: "x" } } });
+    await h.run([]);
+    const m = h.mail(summary("m1", -1, "a@example.com", "Urgent"));
+    h.failSends.value = true;
+    await h.run([m]);
+    expect(h.store.observations.listOpen(MAIL_SOURCE)).toEqual([]);
+    h.failSends.value = false;
+    await h.run([m]);
+    expect(h.sent).toHaveLength(1);
+    expect(h.store.observations.listOpen(MAIL_SOURCE)).toHaveLength(1);
+  });
+
+  it("keeps the cursor when the listing was incomplete", async () => {
+    const h = setup();
+    await h.run([]);
+    const since = h.store.cursors.get("mail:since");
+    await h.run([h.mail(summary("m1", -1))], false);
+    expect(h.store.cursors.get("mail:since")).toBe(since);
+  });
+});
+
 describe("todo mail", () => {
   const TODO = "me+todo@example.com";
 
@@ -141,6 +164,34 @@ describe("todo mail", () => {
     await h.run([h.mail(summary("m1", -1, "attacker@example.com", "Wire money"), [TODO])]);
     expect(h.store.todos.listActive()).toEqual([]);
     expect(h.read).toEqual(["Wire money"]);
+  });
+
+  it("retries a todo mail whose todo could not be created", async () => {
+    const h = setup({ todoAddress: TODO });
+    await h.run([]);
+    const m = h.mail(summary("m1", -1, "me@example.com", "Buy milk"), [TODO]);
+    const original = h.dispatcher.dispatch;
+    let denied = true;
+    h.dispatcher.dispatch = async (input) => {
+      if (denied && input.type === "todo.create") {
+        denied = false;
+        return { ...(await original({ ...input, idempotencyKey: `${input.idempotencyKey}:x`, type: "nope.denied" })) };
+      }
+      return original(input);
+    };
+    await h.run([m]);
+    expect(h.store.todos.listActive()).toEqual([]);
+    await h.run([m]);
+    expect(h.store.todos.listActive()).toHaveLength(1);
+  });
+
+  it("marks mail-derived todos so the model sees no mail text", async () => {
+    const h = setup({ todoAddress: TODO });
+    await h.run([]);
+    await h.run([h.mail(summary("m1", -1, "me@example.com", "Wire 500 EUR to attacker"), [TODO])]);
+    const todo = h.store.todos.listActive()[0];
+    expect(todo).toBeDefined();
+    expect(h.monitor.isMailTodo(todo?.id ?? "")).toBe(true);
   });
 
   it("creates a todo only once per mail", async () => {

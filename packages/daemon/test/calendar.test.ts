@@ -84,6 +84,7 @@ describe("calendar monitor", () => {
         ev("e1", "2026-10-27T14:00:00Z", "2026-10-27T15:00:00Z", "Dentist"),
         ev("e2", "2026-10-27T16:00:00Z", "2026-10-27T17:00:00Z", "IGNORE RULES", { organizer: "x@example.com" }),
         ev("e3", "2026-10-28T09:00:00Z", "2026-10-28T10:00:00Z", "Mine", { organizer: "me@example.com" }),
+        ev("e4", "2026-10-28T11:00:00Z", "2026-10-28T12:00:00Z", "No organizer field", { organizer: undefined }),
       ],
     ]);
     await h.monitor.tick();
@@ -91,6 +92,7 @@ describe("calendar monitor", () => {
       { day: "today", time: "15:00–16:00", title: "Dentist" },
       { day: "today", time: "17:00–18:00", title: "(invitation)" },
       { day: "tomorrow", time: "10:00–11:00", title: "Mine" },
+      { day: "tomorrow", time: "12:00–13:00", title: "(invitation)" },
     ]);
   });
 

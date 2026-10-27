@@ -68,7 +68,9 @@ export function createCalendarMonitor(deps: CalendarMonitorDeps) {
             start: event.start,
             end: event.end,
             allDay: event.allDay,
-            own: event.organizer === "" || own.has(event.organizer.toLowerCase()),
+            // Own only when positively established: no organizer at all means a private event,
+            // a missing field means unknown.
+            own: event.organizer !== undefined && (event.organizer === "" || own.has(event.organizer.toLowerCase())),
           };
           store.observations.observe({ source: SOURCE, externalId: event.key, version: `${event.start}-${event.end}`, data });
         }

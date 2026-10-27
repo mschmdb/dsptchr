@@ -174,7 +174,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
           dailyBudgetUsd: orchestratorConfig.dailyBudgetUsd,
           role: instance.role,
           ...(calendar === undefined ? {} : { calendar }),
-          ...(mail === undefined ? {} : { mail }),
+          ...(mail === undefined ? {} : { mail, isMailTodo: (id: string) => mail.isMailTodo(id) }),
         });
   const operator = createOperatorHandler({
     store,

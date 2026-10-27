@@ -28,6 +28,8 @@ export interface OrchestratorDeps {
   role: string;
   calendar?: { forModel(): unknown[] };
   mail?: { forModel(): unknown };
+  // Todos created from mail carry text a spoofed sender may control; the model gets a placeholder.
+  isMailTodo?: (todoId: string) => boolean;
 }
 
 export type OrchestratorOutcome = "handled" | "paused" | "budget_exhausted" | "unavailable";
@@ -91,7 +93,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           return JSON.stringify({
             todos: store.todos.listActive().map((t) => ({
               id: t.id,
-              text: t.text,
+              text: deps.isMailTodo?.(t.id) === true ? "(todo from mail)" : t.text,
               state: t.state,
               ...(t.dueAt === undefined ? {} : { due: formatDue(t.dueAt, timeZone) }),
             })),

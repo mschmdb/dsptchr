@@ -4,7 +4,7 @@ import { WatcherError } from "../server-health/server-health.ts";
 // proton-cli holds a session for the whole account (mail, drive, pass, settings). Only this
 // wrapper calls it, and only with these read commands (docs/security.md).
 export type ProtonCommand =
-  | { kind: "mail.list"; folder: "inbox" | "all" | "archive"; newerThan?: string; to?: string; limit: number }
+  | { kind: "mail.list"; folder: "inbox" | "all" | "archive"; newerThan?: string; to?: string; limit: number; page?: number }
   | { kind: "mail.get"; id: string }
   | { kind: "calendar.list"; after: string; before: string };
 
@@ -49,7 +49,12 @@ export function buildProtonArgs(command: ProtonCommand, profile: string): string
         if (!ADDRESS.test(command.to)) invalid("address");
         args.push("--to", command.to);
       }
-      return [...head, ...args, "--limit", String(command.limit)];
+      args.push("--limit", String(command.limit));
+      if (command.page !== undefined) {
+        if (!Number.isInteger(command.page) || command.page < 0 || command.page > 100) invalid("page");
+        if (command.page > 0) args.push("--page", String(command.page));
+      }
+      return [...head, ...args];
     }
     case "mail.get":
       if (!ID.test(command.id) || command.id.startsWith("-")) invalid("message id");

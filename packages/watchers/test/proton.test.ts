@@ -29,10 +29,30 @@ describe("proton source", () => {
         has_more: false,
       },
     });
-    const mails = await proton.newMail({ since: Date.parse("2026-10-27T08:00:00Z"), now: Date.parse("2026-10-27T10:30:00Z") });
+    const { mails, complete } = await proton.newMail({ since: Date.parse("2026-10-27T08:00:00Z"), now: Date.parse("2026-10-27T10:30:00Z") });
+    expect(complete).toBe(true);
     expect(mails.map((m) => m.id)).toEqual(["m1", "m2"]);
     expect(mails[0]).toEqual({ id: "m1", subject: "Older", fromName: "A", fromAddress: "a@example.com", time: Date.parse("2026-10-27T09:00:00Z") });
-    expect(commands[0]).toEqual({ kind: "mail.list", folder: "inbox", newerThan: "3h", limit: 50 });
+    expect(commands[0]).toEqual({ kind: "mail.list", folder: "inbox", newerThan: "3h", limit: 50, page: 0 });
+  });
+
+  it("pages through has_more and reports incompleteness at the page limit", async () => {
+    let calls = 0;
+    const proton = createProtonSource({
+      call: async (command) => {
+        calls++;
+        const page = command.kind === "mail.list" ? (command.page ?? 0) : 0;
+        return {
+          messages: [{ id: `m${page}`, subject: "s", from_name: "n", from_address: "a@example.com", time: T("2026-10-27T10:00:00Z") + page }],
+          has_more: true,
+        };
+      },
+      maxPages: 3,
+    });
+    const result = await proton.newMail({ since: 0, now: Date.parse("2026-10-27T10:30:00Z") });
+    expect(calls).toBe(3);
+    expect(result.complete).toBe(false);
+    expect(result.mails).toHaveLength(3);
   });
 
   it("caps the look-back window to seven days", async () => {
@@ -96,6 +116,15 @@ describe("proton source", () => {
       },
     ]);
     expect(commands[0]).toEqual({ kind: "calendar.list", after: "2026-10-28", before: "2026-10-28" });
+  });
+
+  it("keeps a missing organizer as unknown", async () => {
+    const { proton } = source({
+      "calendar.list": {
+        events: [{ id: "e1", title: "T", start: "2026-10-28T09:00:00+01:00", end: "2026-10-28T10:00:00+01:00", all_day: false }],
+      },
+    });
+    expect((await proton.events({ after: "2026-10-28", before: "2026-10-28" }))[0]?.organizer).toBeUndefined();
   });
 
   it("rejects unexpected shapes", async () => {

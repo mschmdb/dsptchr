@@ -77,12 +77,13 @@ export function failureStreak({ store, dispatcher, source, label, now, timeZone,
 }
 
 // Sends lines in as many messages as needed and applies each part once it went out.
-// Undelivered parts stay unrecorded, so the next run reports them again.
+// Undelivered parts stay unrecorded, so the next run reports them again. Returns true when
+// everything was delivered.
 export async function sendAlertLines(
   dispatcher: Dispatcher,
   store: Store,
   options: { title: string; lines: AlertLine[]; keyBase: string },
-): Promise<void> {
+): Promise<boolean> {
   const parts = chunk(options.lines);
   for (const [index, part] of parts.entries()) {
     const title = parts.length === 1 ? options.title : `${options.title} (${index + 1}/${parts.length})`;
@@ -92,9 +93,10 @@ export async function sendAlertLines(
       idempotencyKey: `${options.keyBase}:${index}`,
       actor: ACTOR,
     });
-    if (action.state !== "executed") break;
+    if (action.state !== "executed") return false;
     store.transaction(() => part.forEach((l) => l.apply()));
   }
+  return true;
 }
 
 function chunk(lines: AlertLine[]): AlertLine[][] {

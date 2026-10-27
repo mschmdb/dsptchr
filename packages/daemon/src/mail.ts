@@ -16,7 +16,7 @@ const WORTH_READING = new Set(["personal", "important"]);
 export interface MailMonitorDeps {
   store: Store;
   dispatcher: Dispatcher;
-  listMail(window: { since: number; now: number }): Promise<MailSummary[]>;
+  listMail(window: { since: number; now: number }): Promise<{ mails: MailSummary[]; complete: boolean }>;
   readMail(id: string): Promise<MailMessage>;
   classify(message: MailMessage): Promise<MailReading>;
   mayClassify(): boolean;
@@ -51,7 +51,8 @@ export function createMailMonitor(deps: MailMonitorDeps) {
       .map((o) => o.data as MailData)
       .filter((d) => d.time >= now() - DAY_MS);
 
-  async function captureTodo(message: MailMessage): Promise<void> {
+  // True once the todo exists; false leaves the mail unprocessed for the next run.
+  async function captureTodo(message: MailMessage): Promise<boolean> {
     const input = splitTodoInput(message.subject);
     const text = input.text === "" ? "Todo from mail" : input.text.slice(0, 500);
     const dueAt = input.due === undefined ? undefined : parseDue(input.due, now(), timeZone);
@@ -61,7 +62,9 @@ export function createMailMonitor(deps: MailMonitorDeps) {
       idempotencyKey: `mail:${message.id}:todo`,
       actor: ACTOR,
     });
-    if (created.state !== "executed") return;
+    if (created.state !== "executed") return false;
+    const todoId = (created.result as { todoId?: unknown }).todoId;
+    if (typeof todoId === "string") cursors.set(`todo:${todoId}`, "1");
     const due = dueAt === undefined ? "" : ` (due ${formatDue(dueAt, timeZone)})`;
     const note = input.due !== undefined && dueAt === undefined ? ` (due date "${input.due}" not understood)` : "";
     await dispatcher.dispatch({
@@ -70,9 +73,11 @@ export function createMailMonitor(deps: MailMonitorDeps) {
       idempotencyKey: `mail:${message.id}:reply`,
       actor: ACTOR,
     });
+    return true;
   }
 
-  async function process(summary: MailSummary): Promise<AlertLine | undefined> {
+  // undefined: handled; "retry": leave for the next run; AlertLine: handled once the alert went out.
+  async function process(summary: MailSummary): Promise<AlertLine | "retry" | undefined> {
     const message = await deps.readMail(summary.id);
     const from = message.fromAddress.toLowerCase();
     const base = {
@@ -83,7 +88,7 @@ export function createMailMonitor(deps: MailMonitorDeps) {
 
     // Todo mail counts only from the operator's own addresses; others are ordinary mail.
     if (todoAddress !== undefined && own.has(from) && message.recipients.some((r) => r.toLowerCase() === todoAddress)) {
-      await captureTodo(message);
+      if (!(await captureTodo(message))) return "retry";
       store.observations.observe({
         source: SOURCE,
         externalId: message.id,
@@ -111,7 +116,7 @@ export function createMailMonitor(deps: MailMonitorDeps) {
     async tick(): Promise<boolean> {
       if (!claimRun(store, SOURCE, deps.intervalMs, now())) return false;
       const since = cursors.number("since");
-      const mails = await deps.listMail({ since: since ?? now(), now: now() });
+      const listing = await deps.listMail({ since: since ?? now(), now: now() });
       if (since === undefined) {
         // First run: start from now instead of reading the whole inbox.
         cursors.set("since", now());
@@ -119,18 +124,31 @@ export function createMailMonitor(deps: MailMonitorDeps) {
       }
       const lines: AlertLine[] = [];
       let latest = since;
-      for (const mail of mails) {
+      let allHandled = listing.complete;
+      for (const mail of listing.mails) {
+        if (store.observations.get(SOURCE, mail.id) !== undefined) {
+          latest = Math.max(latest, mail.time);
+          continue;
+        }
+        const result = await process(mail);
+        if (result === "retry") {
+          allHandled = false;
+          continue;
+        }
+        if (result !== undefined) lines.push(result);
         latest = Math.max(latest, mail.time);
-        if (store.observations.get(SOURCE, mail.id) !== undefined) continue;
-        const line = await process(mail);
-        if (line !== undefined) lines.push(line);
       }
-      cursors.set("since", latest);
-      await sendAlertLines(dispatcher, store, { title: "Mail", lines, keyBase: `${SOURCE}:${now()}` });
+      const delivered = await sendAlertLines(dispatcher, store, { title: "Mail", lines, keyBase: `${SOURCE}:${now()}` });
+      // The cursor only moves when every mail up to it is recorded; the rest is retried.
+      if (allHandled && delivered) cursors.set("since", latest);
       for (const open of store.observations.listOpen(SOURCE)) {
         if ((open.data as MailData).time < now() - KEEP_MS) store.observations.resolve(SOURCE, open.externalId);
       }
       return true;
+    },
+
+    isMailTodo(todoId: string): boolean {
+      return cursors.get(`todo:${todoId}`) === "1";
     },
 
     briefing(): string[] {

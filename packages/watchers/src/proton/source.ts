@@ -27,11 +27,13 @@ export interface CalendarEvent {
   start: number;
   end: number;
   allDay: boolean;
-  organizer: string;
+  // Undefined when the CLI reports none; only a present organizer can establish ownership.
+  organizer: string | undefined;
   cancelled: boolean;
 }
 
 const listSchema = z.object({
+  has_more: z.boolean().optional(),
   messages: z.array(
     z.object({
       id: z.string(),
@@ -75,23 +77,33 @@ function parse<S extends z.ZodType>(schema: S, raw: unknown, what: string): z.ou
   return result.data;
 }
 
-export function createProtonSource(deps: { call(command: ProtonCommand): Promise<unknown> }) {
+export function createProtonSource(deps: { call(command: ProtonCommand): Promise<unknown>; maxPages?: number }) {
+  const maxPages = deps.maxPages ?? 10;
   return {
-    // Inbox mail with time > since, oldest first.
-    async newMail(window: { since: number; now: number }): Promise<MailSummary[]> {
+    // Inbox mail with time > since, oldest first. complete is false when the page limit cut it short.
+    async newMail(window: { since: number; now: number }): Promise<{ mails: MailSummary[]; complete: boolean }> {
       const hours = Math.min(MAX_LOOKBACK_HOURS, Math.max(1, Math.ceil((window.now - window.since) / 3_600_000)));
       const newerThan = hours >= MAX_LOOKBACK_HOURS ? "7d" : `${hours}h`;
-      const raw = await deps.call({ kind: "mail.list", folder: "inbox", newerThan, limit: 50 });
-      return parse(listSchema, raw, "mail list")
-        .messages.map((m) => ({
-          id: m.id,
-          subject: m.subject,
-          fromName: m.from_name,
-          fromAddress: m.from_address,
-          time: m.time * 1000,
-        }))
-        .filter((m) => m.time > window.since)
-        .sort((a, b) => a.time - b.time);
+      const mails: MailSummary[] = [];
+      let complete = false;
+      for (let page = 0; page < maxPages; page++) {
+        const raw = await deps.call({ kind: "mail.list", folder: "inbox", newerThan, limit: 50, page });
+        const parsed = parse(listSchema, raw, "mail list");
+        mails.push(
+          ...parsed.messages.map((m) => ({
+            id: m.id,
+            subject: m.subject,
+            fromName: m.from_name,
+            fromAddress: m.from_address,
+            time: m.time * 1000,
+          })),
+        );
+        if (parsed.has_more !== true) {
+          complete = true;
+          break;
+        }
+      }
+      return { mails: mails.filter((m) => m.time > window.since).sort((a, b) => a.time - b.time), complete };
     },
 
     async readMail(id: string): Promise<MailMessage> {
@@ -114,7 +126,7 @@ export function createProtonSource(deps: { call(command: ProtonCommand): Promise
         start: Date.parse(e.start),
         end: Date.parse(e.end),
         allDay: e.all_day,
-        organizer: e.organizer ?? "",
+        organizer: e.organizer,
         cancelled: e.status === "cancelled",
       }));
     },
