@@ -30,6 +30,16 @@ Throw an error whose `name` is `"KnowledgeError"` for input the model can fix (u
 - Make every change reversible, for example as a commit in a Git repository.
 - Return bounded output; dsptchr passes it to the model.
 
+## Example: rcllr
+
+[rcllr](https://www.npmjs.com/package/rcllr) keeps Markdown notes in a Git repository with scopes and sensitive paths, and fits this contract well:
+
+- `context(query)` → `rcllr context <query> --scope <scope> --json`
+- `read(path, section)` → `rcllr read <path> --scope <scope> --json [--section <heading>]`
+- `write(request)` → `rcllr write <path> --scope <scope> --expected <rev> [--append] --message <text> --json`, content on stdin
+
+rcllr commits every write, so changes stay reversible. Exit code 3 on `write` means the note was saved but the push failed; treat it as success.
+
 ## Configuration
 
 ```yaml
