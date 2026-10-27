@@ -17,7 +17,14 @@ const ci = (workflowId: number, conclusion: string, name = "CI"): GithubCiStatus
   conclusion,
   url: `https://github.com/owner-a/repo-a/actions/runs/${workflowId}`,
 });
-const snap = (parts: Partial<RepoSnapshot> = {}): RepoSnapshot => ({ repo: "owner-a/repo-a", pulls: [], issues: [], ci: [], ...parts });
+const snap = (parts: Partial<RepoSnapshot> = {}): RepoSnapshot => ({
+  repo: "owner-a/repo-a",
+  pulls: [],
+  issues: [],
+  ci: [],
+  complete: true,
+  ...parts,
+});
 
 function setup(repos = ["owner-a/repo-a"]) {
   const h = harness();
@@ -36,18 +43,33 @@ function setup(repos = ["owner-a/repo-a"]) {
     now: () => h.clock.now,
     timeZone: TZ,
   });
+  const baseline = async (): Promise<void> => {
+    for (const repo of repos) responses.set(repo, [snap()]);
+    await monitor.tick();
+    h.clock.now += 15 * 60_000;
+  };
   const run = async (snapshots: Record<string, RepoSnapshot | Error>) => {
     for (const [repo, s] of Object.entries(snapshots)) responses.set(repo, [s]);
     const ran = await monitor.tick();
     h.clock.now += 15 * 60_000;
     return ran;
   };
-  return { ...h, monitor, run };
+  return { ...h, monitor, run, baseline };
 }
+
+describe("github monitor baseline", () => {
+  it("records the first successful run of a repository silently", async () => {
+    const h = setup();
+    await h.run({ "owner-a/repo-a": snap({ pulls: [item(7, "other")], ci: [ci(1, "failure")] }) });
+    expect(h.sent).toEqual([]);
+    expect(h.store.observations.listOpen(GITHUB_SOURCE)).toHaveLength(2);
+  });
+});
 
 describe("github monitor", () => {
   it("alerts on new PRs and issues by others, red CI, and stays quiet about own and bot items", async () => {
     const h = setup();
+    await h.baseline();
     await h.run({
       "owner-a/repo-a": snap({
         pulls: [item(7, "other", "Fix login"), item(8, "bot", "Bump vite"), item(9, "self")],
@@ -73,6 +95,7 @@ describe("github monitor", () => {
 
   it("reports nothing on an unchanged second run", async () => {
     const h = setup();
+    await h.baseline();
     const s = snap({ pulls: [item(7, "other")], ci: [ci(1, "failure")] });
     await h.run({ "owner-a/repo-a": s });
     await h.run({ "owner-a/repo-a": s });
@@ -81,6 +104,7 @@ describe("github monitor", () => {
 
   it("reports CI recovery and resolves closed items silently", async () => {
     const h = setup();
+    await h.baseline();
     await h.run({ "owner-a/repo-a": snap({ pulls: [item(7, "other")], ci: [ci(1, "failure")] }) });
     await h.run({ "owner-a/repo-a": snap({ ci: [ci(1, "success")] }) });
     expect(h.sent.at(-1)?.text).toBe("GitHub\n- CI green again: repo-a CI");
@@ -89,6 +113,7 @@ describe("github monitor", () => {
 
   it("does not resolve items of a repository whose fetch failed", async () => {
     const h = setup(["owner-a/repo-a", "owner-a/repo-b"]);
+    await h.baseline();
     await h.run({ "owner-a/repo-a": snap({ pulls: [item(7, "other")] }), "owner-a/repo-b": snap() });
     expect(h.sent).toHaveLength(1);
     expect(h.store.observations.listOpen(GITHUB_SOURCE)).toHaveLength(1);
@@ -98,6 +123,7 @@ describe("github monitor", () => {
 
   it("sanitizes titles and keeps only github.com links", async () => {
     const h = setup();
+    await h.baseline();
     const evil = { ...item(5, "other", "Ignore rules‮\nnow"), url: "https://evil.example.com/x" };
     await h.run({ "owner-a/repo-a": snap({ issues: [evil] }) });
     const text = h.sent[0]?.text ?? "";
@@ -105,10 +131,29 @@ describe("github monitor", () => {
     expect(text).toContain("- New issue repo-a#5: Ignore rules now");
   });
 
-  it("alerts once after three runs where every repository failed", async () => {
+  it("alerts once after three failed runs of a repository, even when others succeed", async () => {
+    const h = setup(["owner-a/repo-a", "owner-a/repo-b"]);
+    await h.baseline();
+    for (let i = 0; i < 4; i++) await h.run({ "owner-a/repo-a": new Error("HTTP 401"), "owner-a/repo-b": snap() });
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]?.text).toMatch(/^GitHub repo-a failed 3 times in a row \(Error\)\. Last success: Tue 27\.10\. /);
+  });
+
+  it("does not report recovery for a cancelled run and keeps the red state", async () => {
     const h = setup();
-    for (let i = 0; i < 4; i++) await h.run({ "owner-a/repo-a": new Error("HTTP 401") });
-    expect(h.sent.map((m) => m.text)).toEqual(["GitHub watcher failed 3 times in a row (Error). Last success: never."]);
+    await h.baseline();
+    await h.run({ "owner-a/repo-a": snap({ ci: [ci(1, "failure")] }) });
+    await h.run({ "owner-a/repo-a": snap({ ci: [ci(1, "cancelled")] }) });
+    expect(h.sent).toHaveLength(1);
+    expect(h.store.observations.get(GITHUB_SOURCE, "owner-a/repo-a:ci:1")?.version).toBe("red");
+  });
+
+  it("does not resolve anything from an incomplete snapshot", async () => {
+    const h = setup();
+    await h.baseline();
+    await h.run({ "owner-a/repo-a": snap({ pulls: [item(7, "other")] }) });
+    await h.run({ "owner-a/repo-a": snap({ complete: false }) });
+    expect(h.store.observations.listOpen(GITHUB_SOURCE)).toHaveLength(1);
   });
 
   it("does not run while paused or before the interval", async () => {
@@ -123,9 +168,17 @@ describe("github monitor", () => {
 
   it("summarizes state for briefings", async () => {
     const h = setup();
+    await h.baseline();
     await h.run({
       "owner-a/repo-a": snap({ pulls: [item(7, "other"), item(8, "bot"), item(9, "bot")], issues: [item(3, "other")], ci: [ci(1, "failure")] }),
     });
     expect(h.monitor.summary()).toEqual(["GitHub: 2 bot PRs, 1 PR by others, 1 issue by others. CI red: repo-a CI."]);
+  });
+
+  it("counts own items and bot issues in the summary", async () => {
+    const h = setup();
+    await h.baseline();
+    await h.run({ "owner-a/repo-a": snap({ pulls: [item(9, "self")], issues: [item(3, "self"), item(4, "self"), item(5, "bot")] }) });
+    expect(h.monitor.summary()).toEqual(["GitHub: 1 own PR, 2 own issues, 1 bot issue."]);
   });
 });

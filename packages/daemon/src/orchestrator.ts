@@ -108,7 +108,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           for (const o of store.observations.listOpen(GITHUB_SOURCE)) {
             const d = o.data as { repo?: unknown; kind?: unknown; author?: unknown };
             if (typeof d.repo !== "string") continue;
-            const name = d.repo.split("/")[1] ?? d.repo;
+            const name = d.repo;
             const entry = repos.get(name) ?? { open_prs: emptyCounts(), open_issues: emptyCounts(), ci_red: 0 };
             if (d.kind === "ci") {
               if (o.version === "red") entry.ci_red++;
@@ -190,7 +190,13 @@ export function createOrchestrator(deps: OrchestratorDeps) {
         await sendReply(event, previous.reply);
         return "handled";
       }
-      if (!withinBudget()) return "budget_exhausted";
+      if (!withinBudget()) {
+        // Completed writes must never be followed by a fallback todo for the same message.
+        const partial = doneSoFar(event, "Daily model budget reached mid-answer.");
+        if (partial === undefined) return "budget_exhausted";
+        await sendReply(event, partial);
+        return "handled";
+      }
 
       const history = store.conversation.recent(HISTORY_TURNS, { since: now() - HISTORY_MAX_AGE_MS });
       const alreadyDone =

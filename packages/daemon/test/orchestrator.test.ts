@@ -119,7 +119,7 @@ describe("orchestrator", () => {
     expect(JSON.parse(state)).toEqual({
       repos: [
         {
-          repo: "repo-a",
+          repo: "owner-a/repo-a",
           open_prs: { self: 0, bot: 0, other: 0 },
           open_issues: { self: 0, bot: 0, other: 1 },
           ci_red: 1,
@@ -276,6 +276,19 @@ describe("orchestrator", () => {
     await h.orchestrator.handle(event);
     const retryInput = h.createMessage.requests[2]?.messages.at(-1)?.content as string;
     expect(retryInput).toMatch(/Already done for this message:\n- Created todo/);
+  });
+
+  it("reports persisted writes on retry even when the budget is used up", async () => {
+    const h = setup([
+      { tool: "create_todo", input: { text: "Buy milk", due_at: null } },
+      new Error("database is locked"),
+    ]);
+    const event = text("buy milk");
+    await expect(h.orchestrator.handle(event)).rejects.toThrow();
+    h.store.runs.record({ role: "orchestrator", model: "m", inputTokens: 0, outputTokens: 0, costUsd: 5, outcome: "ok" });
+    expect(await h.orchestrator.handle(event)).toBe("handled");
+    expect(h.sent.at(-1)?.text).toMatch(/Done so far:\n- Created todo/);
+    expect(h.store.todos.listActive()).toHaveLength(1);
   });
 
   it("does not duplicate a todo when the same event is handled twice", async () => {

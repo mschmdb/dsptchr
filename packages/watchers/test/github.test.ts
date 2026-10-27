@@ -32,14 +32,22 @@ const routes: Routes = {
     { number: 3, title: "Crash on start", html_url: "https://github.com/x/3", user: { login: "someone", type: "User" }, updated_at: "2026-10-27T09:00:00Z" },
     { number: 7, title: "Fix login", html_url: "https://github.com/x/7", user: { login: "someone", type: "User" }, updated_at: "2026-10-27T10:00:00Z", pull_request: {} },
   ],
-  [`${base}/actions/runs?branch=main&per_page=20`]: {
-    workflow_runs: [
-      { workflow_id: 1, name: "CI", status: "completed", conclusion: "failure", html_url: "https://github.com/x/r/2", created_at: "2026-10-27T12:00:00Z" },
-      { workflow_id: 1, name: "CI", status: "completed", conclusion: "success", html_url: "https://github.com/x/r/1", created_at: "2026-10-27T11:00:00Z" },
-      { workflow_id: 2, name: "Deploy", status: "in_progress", conclusion: null, html_url: "https://github.com/x/r/3", created_at: "2026-10-27T12:30:00Z" },
-      { workflow_id: 2, name: "Deploy", status: "completed", conclusion: "success", html_url: "https://github.com/x/r/4", created_at: "2026-10-27T10:30:00Z" },
+  [`${base}/actions/workflows?per_page=100`]: {
+    workflows: [
+      { id: 1, name: "CI", state: "active", path: ".github/workflows/ci.yml" },
+      { id: 2, name: "Deploy", state: "active", path: ".github/workflows/deploy.yml" },
+      { id: 3, name: "Old", state: "disabled_manually", path: ".github/workflows/old.yml" },
+      { id: 4, name: "Never ran", state: "active", path: ".github/workflows/never.yml" },
+      { id: 5, name: "Dependabot Updates", state: "active", path: "dynamic/dependabot/dependabot-updates" },
     ],
   },
+  [`${base}/actions/workflows/1/runs?branch=main&status=completed&per_page=1`]: {
+    workflow_runs: [{ workflow_id: 1, name: "Run title from commit", status: "completed", conclusion: "failure", html_url: "https://github.com/x/r/2" }],
+  },
+  [`${base}/actions/workflows/2/runs?branch=main&status=completed&per_page=1`]: {
+    workflow_runs: [{ workflow_id: 2, name: "Deploy", status: "completed", conclusion: "success", html_url: "https://github.com/x/r/4" }],
+  },
+  [`${base}/actions/workflows/4/runs?branch=main&status=completed&per_page=1`]: { workflow_runs: [] },
 };
 
 describe("fetchRepoSnapshot", () => {
@@ -98,6 +106,52 @@ describe("fetchRepoSnapshot", () => {
     const error = await fetchRepoSnapshot(REPO, { token: { reveal: () => TOKEN }, self: "x", fetch }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(WatcherError);
     expect(String(error)).not.toContain(TOKEN);
+  });
+});
+
+describe("pagination", () => {
+  it("follows next links and reports a complete snapshot", async () => {
+    const page2 = `${base}/pulls?state=open&per_page=50&page=2`;
+    const pr = (n: number) => ({ number: n, title: `t${n}`, draft: false, html_url: `https://github.com/x/${n}`, user: { login: "u", type: "User" }, updated_at: "2026-10-27T10:00:00Z" });
+    const calls: string[] = [];
+    const fetch: typeof globalThis.fetch = async (input) => {
+      const path = String(input).replace("https://api.github.com", "");
+      calls.push(path);
+      if (path === `${base}/pulls?state=open&per_page=50`) {
+        return new Response(JSON.stringify([pr(1)]), { headers: { link: `<https://api.github.com${page2}>; rel="next"` } });
+      }
+      if (path === page2) return new Response(JSON.stringify([pr(2)]));
+      return new Response(JSON.stringify(routes[path] ?? {}), { status: path in routes ? 200 : 404 });
+    };
+    const snapshot = await fetchRepoSnapshot(REPO, { token: { reveal: () => TOKEN }, self: "x", fetch });
+    expect(snapshot.pulls.map((p) => p.number)).toEqual([1, 2]);
+    expect(snapshot.complete).toBe(true);
+  });
+
+  it("marks the snapshot incomplete when the page limit is reached", async () => {
+    let n = 0;
+    const fetch: typeof globalThis.fetch = async (input) => {
+      const path = String(input).replace("https://api.github.com", "");
+      if (path.includes("/pulls")) {
+        n++;
+        return new Response(JSON.stringify([]), { headers: { link: `<https://api.github.com${base}/pulls?state=open&per_page=50&page=${n + 1}>; rel="next"` } });
+      }
+      return new Response(JSON.stringify(routes[path] ?? {}), { status: path in routes ? 200 : 404 });
+    };
+    const snapshot = await fetchRepoSnapshot(REPO, { token: { reveal: () => TOKEN }, self: "x", fetch, maxPages: 3 });
+    expect(n).toBe(3);
+    expect(snapshot.complete).toBe(false);
+  });
+
+  it("refuses next links to other hosts", async () => {
+    const fetch: typeof globalThis.fetch = async (input) => {
+      const path = String(input).replace("https://api.github.com", "");
+      if (path.includes("/pulls")) {
+        return new Response(JSON.stringify([]), { headers: { link: `<https://evil.example.com/x>; rel="next"` } });
+      }
+      return new Response(JSON.stringify(routes[path] ?? {}), { status: path in routes ? 200 : 404 });
+    };
+    await expect(fetchRepoSnapshot(REPO, { token: { reveal: () => TOKEN }, self: "x", fetch })).rejects.toThrow(WatcherError);
   });
 });
 

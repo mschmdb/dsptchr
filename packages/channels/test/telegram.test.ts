@@ -153,6 +153,7 @@ describe("telegramChannel.send", () => {
       body: {
         chat_id: GROUP,
         text: "Reminder",
+        link_preview_options: { is_disabled: true },
         reply_markup: { inline_keyboard: [[{ text: "Done", callback_data: "todo:done:1" }]] },
       },
     });
@@ -161,7 +162,12 @@ describe("telegramChannel.send", () => {
   it("sends into a forum topic", async () => {
     const { channel, calls } = setup({ sendMessage: [{ ok: true, result: { message_id: 1 } }] });
     await channel.send({ text: "x", conversation: `${GROUP}:9` });
-    expect(calls[0]?.body).toEqual({ chat_id: GROUP, message_thread_id: 9, text: "x" });
+    expect(calls[0]?.body).toEqual({
+      chat_id: GROUP,
+      message_thread_id: 9,
+      text: "x",
+      link_preview_options: { is_disabled: true },
+    });
   });
 
   it("refuses conversations outside the allowlist", async () => {

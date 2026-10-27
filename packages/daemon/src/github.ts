@@ -7,6 +7,8 @@ export const GITHUB_SOURCE = "github";
 const SOURCE = GITHUB_SOURCE;
 const MAX_TITLE = 100;
 const RED = new Set(["failure", "timed_out", "startup_failure"]);
+// Cancelled, skipped or neutral runs say nothing about health and leave the state as is.
+const GREEN = new Set(["success"]);
 const GITHUB_URL = /^https:\/\/github\.com\/[^\s]+$/;
 
 export interface GithubMonitorDeps {
@@ -40,17 +42,23 @@ interface CiData {
 // sanitized and only ever sent to the operator, never to a model (D-45).
 export function createGithubMonitor(deps: GithubMonitorDeps) {
   const { store, dispatcher, now } = deps;
-  const streak = failureStreak({
-    store,
-    dispatcher,
-    source: SOURCE,
-    label: "GitHub watcher",
-    now,
-    timeZone: deps.timeZone,
-    threshold: deps.failureThreshold ?? 3,
-  });
-
   const short = (repo: string): string => repo.split("/")[1] ?? repo;
+  // One failure streak per repository, so a broken repository alerts even when others work.
+  const streaks = new Map(
+    deps.repos.map((repo) => [
+      repo,
+      failureStreak({
+        store,
+        dispatcher,
+        source: `${SOURCE}:${repo}`,
+        label: `GitHub ${short(repo)}`,
+        now,
+        timeZone: deps.timeZone,
+        threshold: deps.failureThreshold ?? 3,
+      }),
+    ]),
+  );
+
   const safeUrl = (url: string): string | undefined => (GITHUB_URL.test(url) ? url : undefined);
   const withLink = (text: string, url: string | undefined): string => (url === undefined ? text : `${text}\n  ${url}`);
 
@@ -92,7 +100,8 @@ export function createGithubMonitor(deps: GithubMonitorDeps) {
     for (const run of snapshot.ci) {
       const externalId = `${repo}:ci:${run.workflowId}`;
       seen.add(externalId);
-      const version = RED.has(run.conclusion) ? "red" : "green";
+      const version = RED.has(run.conclusion) ? "red" : GREEN.has(run.conclusion) ? "green" : undefined;
+      if (version === undefined) continue;
       const data: CiData = {
         repo: repo,
         kind: "ci",
@@ -113,7 +122,8 @@ export function createGithubMonitor(deps: GithubMonitorDeps) {
       }
     }
 
-    // Closed or merged items leave silently.
+    // Closed or merged items leave silently, but only when the snapshot is complete.
+    if (!snapshot.complete) return lines;
     for (const open of store.observations.listOpen(SOURCE)) {
       if ((open.data as { repo?: unknown }).repo === repo && !seen.has(open.externalId)) {
         store.observations.resolve(SOURCE, open.externalId);
@@ -127,21 +137,26 @@ export function createGithubMonitor(deps: GithubMonitorDeps) {
     async tick(): Promise<boolean> {
       if (!claimRun(store, SOURCE, deps.intervalMs, now())) return false;
       const lines: AlertLine[] = [];
-      let lastError: unknown;
-      let succeeded = 0;
       for (const repo of deps.repos) {
+        const streak = streaks.get(repo);
+        let snapshot: RepoSnapshot;
         try {
-          lines.push(...diffRepo(repo, await deps.fetchRepo(repo)));
-          succeeded++;
+          snapshot = await deps.fetchRepo(repo);
         } catch (error) {
-          lastError = error;
+          await streak?.failed(error);
+          continue;
+        }
+        streak?.succeeded();
+        const repoLines = diffRepo(repo, snapshot);
+        // The first successful sync of a repository is the baseline: record, don't alert.
+        const syncedKey = `${SOURCE}:${repo}:synced`;
+        if (store.cursors.get(syncedKey) === undefined) {
+          store.transaction(() => repoLines.forEach((l) => l.apply()));
+          store.cursors.set(syncedKey, String(now()));
+        } else {
+          lines.push(...repoLines);
         }
       }
-      if (succeeded === 0 && deps.repos.length > 0) {
-        await streak.failed(lastError);
-        return true;
-      }
-      streak.succeeded();
       await sendAlertLines(dispatcher, store, { title: "GitHub", lines, keyBase: `${SOURCE}:${now()}` });
       return true;
     },
@@ -162,9 +177,12 @@ export function createGithubMonitor(deps: GithubMonitorDeps) {
         plural(count("pr", "bot"), "bot PR"),
         plural(count("pr", "other"), "PR by others", "PRs by others"),
         plural(count("issue", "other"), "issue by others", "issues by others"),
+        plural(count("pr", "self"), "own PR"),
+        plural(count("issue", "self"), "own issue"),
+        plural(count("issue", "bot"), "bot issue"),
       ].filter((p) => p !== "");
       if (parts.length === 0 && red.length === 0) return [];
-      const head = parts.length === 0 ? "GitHub: nothing new." : `GitHub: ${parts.join(", ")}.`;
+      const head = parts.length === 0 ? "GitHub: nothing open." : `GitHub: ${parts.join(", ")}.`;
       return [red.length === 0 ? head : `${head} CI red: ${red.join(", ")}.`];
     },
   };

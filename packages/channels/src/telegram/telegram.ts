@@ -156,6 +156,8 @@ export function telegramChannel(options: TelegramOptions): Channel {
         chat_id: chatId,
         ...(threadId === undefined ? {} : { message_thread_id: threadId }),
         text: message.text.slice(0, MAX_TEXT),
+        // Link previews would show third-party page content (titles, images) in the chat.
+        link_preview_options: { is_disabled: true },
         ...(message.buttons === undefined
           ? {}
           : {
