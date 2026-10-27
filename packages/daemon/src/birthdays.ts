@@ -1,4 +1,5 @@
-import { addDays, isValidDate, wallClockOf } from "@dsptchr/core";
+import { addDays, isValidDate, wallClockOf, wallClockToUtc } from "@dsptchr/core";
+import { formatDue } from "./format.ts";
 import type { Store } from "@dsptchr/store";
 import { sanitizeUntrusted, type Birthday } from "@dsptchr/watchers";
 import { claimRun, cursorsFor } from "./alerts.ts";
@@ -55,6 +56,32 @@ export function createBirthdayMonitor(deps: BirthdayMonitorDeps) {
         ...(tomorrow.length === 0 ? [] : [`tomorrow ${tomorrow.map(label).join(", ")}`]),
       ];
       return [`Birthdays: ${parts.join("; ")}.`];
+    },
+
+    // Every birthday with its next occurrence, for lookups like "when is X's birthday?".
+    all(): { name: string; date: string; next: string; turns?: number }[] {
+      const today = { ...wallClockOf(now(), timeZone), hour: 0, minute: 0 };
+      const pad = (n: number): string => String(n).padStart(2, "0");
+      return stored()
+        .map((b) => {
+          for (let offset = 0; offset <= 366; offset++) {
+            const d = addDays(today, offset);
+            if (!fallsOn(b, d.year, d.month, d.day)) continue;
+            const next =
+              offset === 0 ? "today" : offset === 1 ? "tomorrow" : formatDue(wallClockToUtc(d, timeZone), timeZone).slice(0, 10) + d.year;
+            return {
+              name: b.name,
+              date: `${pad(b.day)}.${pad(b.month)}.`,
+              next,
+              offset,
+              ...(b.year === undefined ? {} : { turns: d.year - b.year }),
+            };
+          }
+          return undefined;
+        })
+        .filter((b): b is NonNullable<typeof b> => b !== undefined)
+        .sort((a, b) => a.offset - b.offset)
+        .map(({ offset: _offset, ...rest }) => rest);
     },
 
     forModel(): { day: "today" | "tomorrow"; name: string; age?: number }[] {

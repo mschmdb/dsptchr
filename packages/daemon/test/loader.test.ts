@@ -241,7 +241,7 @@ describe("loadInstance", () => {
     expect(instance.config.orchestrator).toEqual({
       apiKey: "anthropic_api_key",
       model: "claude-sonnet-5-5",
-      effort: "low",
+      effort: "medium",
       dailyBudgetUsd: 1,
     });
   });

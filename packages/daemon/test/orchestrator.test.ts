@@ -60,8 +60,23 @@ describe("orchestrator", () => {
     expect(await h.orchestrator.handle(text("Remind me to call the bank tomorrow"))).toBe("handled");
 
     expect(h.store.todos.listActive()).toMatchObject([{ text: "Call the bank", dueAt: Date.parse("2026-10-28T08:00:00Z") }]);
-    expect(h.sent.at(-1)).toEqual({ text: "Saved: call the bank, tomorrow 09:00.", conversation: "-1002" });
-    expect(resultOf(h.createMessage.requests[1])).toMatch(/^Created todo .+ due Wed 28\.10\. 09:00/);
+    expect(h.sent.at(-1)?.text).toMatch(/^Saved: call the bank, tomorrow 09:00\.\n\n✓ Created todo/);
+    expect(resultOf(h.createMessage.requests[1])).toMatch(/^Created todo "Call the bank" due Wed 28\.10\. 09:00\. \(id .+\)$/);
+  });
+
+  it("appends code-generated receipts for every change, independent of the model's words", async () => {
+    const h = setup([
+      { tool: "create_todo", input: { text: "Call the bank", due_at: "2026-10-28T09:00:00+01:00" } },
+      { text: "Done." },
+    ]);
+    await h.orchestrator.handle(text("remind me"));
+    expect(h.sent.at(-1)?.text).toBe("Done.\n\n✓ Created todo \"Call the bank\" due Wed 28.10. 09:00.");
+  });
+
+  it("adds no receipt when the model only claims a change", async () => {
+    const h = setup([{ text: "Erledigt, ich erinnere dich morgen." }]);
+    await h.orchestrator.handle(text("remind me tomorrow"));
+    expect(h.sent.at(-1)?.text).toBe("Erledigt, ich erinnere dich morgen.\n\n(No change was made.)");
   });
 
   it("gives the model the local time and timezone", async () => {
@@ -284,7 +299,7 @@ describe("orchestrator", () => {
     await h.orchestrator.handle(event);
     expect(h.createMessage.requests).toHaveLength(2);
     expect(h.store.todos.listActive()).toHaveLength(1);
-    expect(h.sent).toEqual([{ text: "Saved.", conversation: "-1002" }]);
+    expect(h.sent).toEqual([{ text: 'Saved.\n\n✓ Created todo "Buy milk" without due time.', conversation: "-1002" }]);
   });
 
   it("tells the model what was already done when a run is retried mid-way", async () => {

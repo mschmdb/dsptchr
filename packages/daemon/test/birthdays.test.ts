@@ -35,6 +35,18 @@ describe("birthday monitor", () => {
     ]);
   });
 
+  it("lists all birthdays with their next date for lookups", async () => {
+    const h = setup([
+      { name: "Anna Example", month: 10, day: 27, year: 1990 },
+      { name: "Cara Example", month: 3, day: 5, year: undefined },
+    ]);
+    await h.monitor.tick();
+    expect(h.monitor.all()).toEqual([
+      { name: "Anna Example", date: "27.10.", next: "today", turns: 36 },
+      { name: "Cara Example", date: "05.03.", next: "Fri 05.03.2027" },
+    ]);
+  });
+
   it("handles 29 February in non-leap years on 28 February", async () => {
     const h = setup([{ name: "Leap Example", month: 2, day: 29, year: 2000 }]);
     h.clock.now = Date.parse("2027-02-28T10:00:00Z");

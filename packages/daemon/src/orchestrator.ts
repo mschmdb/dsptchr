@@ -27,7 +27,7 @@ export interface OrchestratorDeps {
   dailyBudgetUsd: number;
   role: string;
   calendar?: { forModel(): unknown[] };
-  birthdays?: { forModel(): unknown[] };
+  birthdays?: { forModel(): unknown[]; all(): unknown[] };
   mail?: { forModel(): unknown };
   // Todos created from mail carry text a spoofed sender may control; the model gets a placeholder.
   isMailTodo?: (todoId: string) => boolean;
@@ -43,6 +43,9 @@ const HISTORY_MAX_AGE_MS = 6 * 3_600_000;
 const CHECK_NAME = /^[a-z_]{1,24}$/;
 // Caps what one operator message can change, even with a misbehaving model.
 const MAX_WRITES_PER_MESSAGE = 10;
+// A reply that sounds like a change while no tool changed anything gets a visible note.
+const CLAIMS_CHANGE =
+  /\b(erledigt|angelegt|eingetragen|gespeichert|notiert|verschoben|erinnere dich|done|created|saved|added|snoozed|completed|i('ll| will) remind)\b/i;
 
 type Counts = Record<"self" | "bot" | "other", number>;
 const emptyCounts = (): Counts => ({ self: 0, bot: 0, other: 0 });
@@ -106,6 +109,9 @@ export function createOrchestrator(deps: OrchestratorDeps) {
             birthdays: deps.birthdays?.forModel() ?? [],
           });
         }
+        if (scope === "birthdays") {
+          return JSON.stringify({ birthdays: deps.birthdays?.all() ?? [] });
+        }
         if (scope === "mail") {
           return JSON.stringify(deps.mail === undefined ? { mail: "not configured" } : deps.mail.forModel());
         }
@@ -153,11 +159,9 @@ export function createOrchestrator(deps: OrchestratorDeps) {
         if (action.state !== "executed") return `Not allowed right now (${action.state}).`;
         const id = (action.result as { todoId?: string }).todoId ?? "?";
         const summary =
-          dueAt === undefined
-            ? `Created todo ${id} "${text}" without due time.`
-            : `Created todo ${id} "${text}" due ${formatDue(dueAt, timeZone)}.`;
+          dueAt === undefined ? `Created todo "${text}" without due time.` : `Created todo "${text}" due ${formatDue(dueAt, timeZone)}.`;
         store.orchestratorEvents.addWrite(event.id, summary);
-        return summary;
+        return `${summary} (id ${id})`;
       },
 
       async update_todo({ todo_id, action: change, due_at }) {
@@ -253,7 +257,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
         return "handled";
       }
 
-      const reply =
+      const modelReply =
         result.reply ??
         (result.outcome === "budget_exhausted"
           ? (doneSoFar(event, "Daily model budget reached mid-answer.") ??
@@ -261,6 +265,15 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           : result.outcome === "refusal"
             ? "Sorry, I can't help with that. Try /todos, /health or /status."
             : (doneSoFar(event, "I couldn't finish that.") ?? "Sorry, I couldn't finish that. Please try again or rephrase."));
+      // Receipts come from code, not from the model: they list what really changed.
+      const writes = store.orchestratorEvents.get(event.id)?.writes ?? [];
+      const receipts =
+        writes.length > 0
+          ? `\n\n${writes.map((w) => `✓ ${w}`).join("\n")}`
+          : CLAIMS_CHANGE.test(modelReply)
+            ? "\n\n(No change was made.)"
+            : "";
+      const reply = `${modelReply}${receipts}`;
       await sendReply(event, reply);
       store.conversation.append({ role: "operator", text: event.text });
       store.conversation.append({ role: "assistant", text: reply });
