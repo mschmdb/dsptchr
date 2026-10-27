@@ -4,6 +4,7 @@ import { actionRepo } from "./actions.ts";
 import { auditLog } from "./audit.ts";
 import { openDb } from "./db.ts";
 import { conversationRepo, orchestratorEventRepo, runRepo } from "./conversation.ts";
+import { feedbackRepo, ruleRepo } from "./feedback.ts";
 import { inboxRepo } from "./inbox.ts";
 import { observationRepo } from "./observations.ts";
 import { cursorRepo, flagRepo } from "./kv.ts";
@@ -14,6 +15,7 @@ export { AuditTamperError, type AuditEntry, type AuditInput, type AuditLog } fro
 export type { Reminder, ReminderState, ReminderRepo } from "./reminders.ts";
 export type { StoredAction, ActionRepo } from "./actions.ts";
 export type { TodoRepo } from "./todos.ts";
+export type { Features, NotifiedItem, Rule, Verdict } from "./feedback.ts";
 export type { InboxEntry, InboxRepo, InboxState } from "./inbox.ts";
 export type { OrchestratorEvent, RunRecord, Turn } from "./conversation.ts";
 export type { Observation, ObservationRepo, ObserveResult } from "./observations.ts";
@@ -42,6 +44,8 @@ export function openStore(options: StoreOptions) {
     conversation: conversationRepo(db, now),
     runs: runRepo(db, audit, now),
     orchestratorEvents: orchestratorEventRepo(db, now),
+    feedback: feedbackRepo(db, audit, now),
+    rules: ruleRepo(db, audit, now, newId),
     transaction: <T>(fn: () => T): T => db.transaction(fn),
     // Consistent snapshot of the whole database; refuses to overwrite an existing file.
     backup: (target: string): void => {

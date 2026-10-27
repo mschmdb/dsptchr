@@ -122,4 +122,29 @@ export const MIGRATIONS: readonly string[] = [
     reply TEXT
   );
   `,
+  `
+  CREATE TABLE notified_items (
+    ref TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    features_json TEXT NOT NULL,
+    label TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE (source, external_id)
+  );
+  CREATE TABLE feedback (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    at INTEGER NOT NULL,
+    ref TEXT NOT NULL REFERENCES notified_items(ref),
+    verdict TEXT NOT NULL CHECK (verdict IN ('relevant', 'irrelevant', 'mute'))
+  );
+  CREATE TABLE rules (
+    id TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    match_json TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('proposed', 'active', 'rejected')),
+    decided_at INTEGER
+  );
+  `,
 ];
