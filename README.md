@@ -2,7 +2,7 @@
 
 **dsptchr** (say "dispatcher") is a self-hosted personal orchestrator. It watches your mail, calendars, repositories and servers, tells you in Telegram only what is new or matters, keeps your todos and reminders, and answers questions about all of it. Anything it does goes through a deterministic gate first.
 
-> Personal project, built for one operator. No support, no roadmap promises.
+> **Status: alpha.** Under active development and in daily use by its author. Expect breaking changes in configuration and storage between versions. Personal project, built for one operator; no support, no roadmap promises.
 
 ## Design rules
 
@@ -37,7 +37,9 @@ pnpm test && pnpm check
 
 1. Copy [`examples/private/`](examples/private/) to `~/.config/dsptchr/private/` and fill in the placeholders.
 2. Store every secret in the Keychain, for example `security add-generic-password -s dsptchr.private -a telegram-bot -w`. Instance files only reference them.
-3. Run `node packages/daemon/src/main.ts --instance private`, or install [`examples/launchd/`](examples/launchd/) as a LaunchAgent.
+3. Run `node packages/daemon/src/main.ts --instance private` to try it. For daily use, clone the repository a second time as a runtime checkout (default `~/.local/share/dsptchr/app`), install [`examples/launchd/`](examples/launchd/) as a LaunchAgent and update with `scripts/deploy.sh private`.
+
+The daemon backs up its state daily to `backups/` in the instance directory (14 days) and rotates its log in `~/Library/Logs/dsptchr/`.
 
 Instance data (config, state, rules, secrets) never lives in this repository.
 
