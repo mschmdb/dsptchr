@@ -111,6 +111,28 @@ describe("dispatcher", () => {
     expect(h.sent).toEqual([]);
   });
 
+  it("retries a failed action under the same key", async () => {
+    const h = harness();
+    const input = { type: "message.send", payload: { text: "hi" }, idempotencyKey: "k", actor: "x" };
+    h.failSends.value = true;
+    expect((await h.dispatcher.dispatch(input)).state).toBe("failed");
+    h.failSends.value = false;
+    const retried = await h.dispatcher.dispatch(input);
+    expect(retried).toMatchObject({ state: "executed", retries: 1 });
+    expect(h.sent).toHaveLength(1);
+  });
+
+  it("does not retry a failed action while paused", async () => {
+    const h = harness();
+    const input = { type: "message.send", payload: { text: "hi" }, idempotencyKey: "k", actor: "x" };
+    h.failSends.value = true;
+    await h.dispatcher.dispatch(input);
+    h.failSends.value = false;
+    h.store.flags.setPaused(true, "operator");
+    expect((await h.dispatcher.dispatch(input)).state).toBe("failed");
+    expect(h.sent).toEqual([]);
+  });
+
   it("resumes an approved action left behind by a crash", async () => {
     const h = harness();
     const { action } = h.store.actions.propose({

@@ -11,6 +11,8 @@ export interface TelegramOptions {
   fetch?: typeof globalThis.fetch;
   now?: () => number;
   pollTimeoutSeconds?: number;
+  // Upper bound for one request; long polls get the poll timeout on top.
+  requestTimeoutMs?: number;
 }
 
 export class TelegramError extends Error {
@@ -30,20 +32,29 @@ export function telegramChannel(options: TelegramOptions): Channel {
   const fetch = options.fetch ?? globalThis.fetch;
   const now = options.now ?? Date.now;
   const pollTimeout = options.pollTimeoutSeconds ?? 30;
+  const requestTimeout = options.requestTimeoutMs ?? 15_000;
   const allowedChats = new Set([options.groupId, options.operatorUserId]);
   let pendingOffset: number | undefined;
 
-  async function call(method: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+  async function call(
+    method: string,
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+    extraTimeoutMs = 0,
+  ): Promise<unknown> {
+    const timeout = AbortSignal.timeout(requestTimeout + extraTimeoutMs);
+    const combined = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
     let response: Response;
     try {
       response = await fetch(`${API_BASE}/bot${options.token.reveal()}/${method}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
-        ...(signal === undefined ? {} : { signal }),
+        signal: combined,
       });
     } catch (error) {
-      if ((error as Error).name === "AbortError") throw error;
+      if (signal?.aborted === true) throw error;
+      if (timeout.aborted) throw new TelegramError(`${method}: request timed out`);
       // The original error may contain the URL with the token; drop it.
       throw new TelegramError(`${method}: network request failed`);
     }
@@ -120,6 +131,7 @@ export function telegramChannel(options: TelegramOptions): Channel {
           allowed_updates: ["message", "callback_query"],
         },
         signal,
+        pollTimeout * 1000,
       );
       const updates = z.array(updateSchema).safeParse(result);
       if (!updates.success) {

@@ -8,16 +8,19 @@ function setup(handle: (event: InboundEvent) => Promise<void>, options: { maxAtt
   const clock = { now: T0 };
   const store = openStore({ path: ":memory:", now: () => clock.now });
   const dead: string[] = [];
+  const failNotify = { value: false };
   const inbox = createInbox({
     store,
     handle,
     now: () => clock.now,
     onDead: async (entryId) => {
+      if (failNotify.value) return false;
       dead.push(entryId);
+      return true;
     },
     ...options,
   });
-  return { store, clock, inbox, dead };
+  return { store, clock, inbox, dead, failNotify };
 }
 
 describe("inbox processor", () => {
@@ -97,6 +100,26 @@ describe("inbox processor", () => {
     expect(dead).toEqual([event.id]);
   });
 
+  it("retries a failed dead-event notification on later drains", async () => {
+    const { inbox, store, dead, failNotify } = setup(
+      async () => {
+        throw new Error("boom");
+      },
+      { maxAttempts: 1 },
+    );
+    const event = text("a");
+    failNotify.value = true;
+    inbox.accept([event]);
+    await inbox.drain();
+    expect(dead).toEqual([]);
+
+    failNotify.value = false;
+    await inbox.drain();
+    await inbox.drain();
+    expect(dead).toEqual([event.id]);
+    expect(store.inbox.deadUnnotified()).toEqual([]);
+  });
+
   it("does not block later events behind a failing one", async () => {
     const handled: string[] = [];
     const bad = text("bad");
@@ -120,6 +143,21 @@ describe("inbox processor", () => {
     expect(calls).toBe(0);
     expect(store.inbox.get("x")?.state).toBe("dead");
     expect(dead).toEqual(["x"]);
+  });
+
+  it("reports when no drain is running via idle()", async () => {
+    let release: () => void = () => {};
+    const { inbox } = setup(() => new Promise<void>((resolve) => (release = resolve)));
+    await inbox.idle();
+    inbox.accept([text("a")]);
+    const drain = inbox.drain();
+    let idle = false;
+    void inbox.idle().then(() => (idle = true));
+    await Promise.resolve();
+    expect(idle).toBe(false);
+    release();
+    await drain;
+    await inbox.idle();
   });
 
   it("serializes concurrent drains so no event runs twice", async () => {

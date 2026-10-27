@@ -78,12 +78,13 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
     handle: (event) => operator.handle(event),
     now,
     onDead: async (entryId) => {
-      await dispatcher.dispatch({
+      const action = await dispatcher.dispatch({
         type: "message.send",
         payload: { text: `A message could not be processed and was set aside. Audit log subject: ${entryId}` },
         idempotencyKey: `inbox:${entryId}:dead`,
         actor: "daemon",
       });
+      return action.state === "executed";
     },
   });
 

@@ -78,4 +78,7 @@ export const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX inbox_due ON inbox(state, next_attempt_at);
   `,
+  `
+  ALTER TABLE inbox ADD COLUMN dead_notified INTEGER NOT NULL DEFAULT 0;
+  `,
 ];

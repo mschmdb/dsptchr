@@ -13,6 +13,8 @@ export interface RunDaemonOptions {
   log: DaemonLog;
   signal: AbortSignal;
   tickIntervalMs?: number;
+  // How long shutdown waits for a running drain before the caller closes the store.
+  shutdownGraceMs?: number;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
 
@@ -23,6 +25,8 @@ const MAX_BACKOFF_MS = 60_000;
 export async function runDaemon(options: RunDaemonOptions): Promise<void> {
   const sleep = options.sleep ?? abortableSleep;
   await Promise.all([receiveLoop(options, sleep), tickLoop(options, sleep)]);
+  const grace = options.shutdownGraceMs ?? 10_000;
+  await Promise.race([options.inbox.idle(), new Promise((resolve) => setTimeout(resolve, grace).unref())]);
 }
 
 const backoff = (failures: number): number => Math.min(MAX_BACKOFF_MS, 1000 * 2 ** (failures - 1));
@@ -51,7 +55,8 @@ async function receiveLoop(options: RunDaemonOptions, sleep: Sleep): Promise<voi
     // The channel confirms these events on the next receive. Do not receive again
     // before they are stored, or a crash would lose them.
     if (!(await acceptWithRetry(options, events, sleep))) break;
-    await drain(inbox, log);
+    // Not awaited: a slow handler must not hold up receiving or the scheduler.
+    void drain(inbox, log);
   }
 }
 
@@ -82,7 +87,7 @@ async function drain(inbox: Inbox, log: DaemonLog): Promise<void> {
 async function tickLoop(options: RunDaemonOptions, sleep: Sleep): Promise<void> {
   const { signal, log } = options;
   while (!signal.aborted) {
-    await drain(options.inbox, log);
+    void drain(options.inbox, log);
     try {
       const sent = await options.tick();
       if (sent > 0) log.info(`sent ${sent} scheduled message(s)`);

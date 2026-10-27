@@ -235,6 +235,15 @@ describe("errors", () => {
     expect((error as Error).cause).toBeUndefined();
   });
 
+  it("times out a hanging request", async () => {
+    const hanging: typeof globalThis.fetch = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "TimeoutError" })));
+      });
+    const { channel } = setup({}, { fetch: hanging, requestTimeoutMs: 10 });
+    await expect(channel.send({ text: "x" })).rejects.toThrow(/timed out/);
+  });
+
   it("rejects malformed API responses", async () => {
     const { channel } = setup({ getUpdates: [{ ok: true, result: "nope" }] });
     await expect(channel.receive()).rejects.toThrow(TelegramError);

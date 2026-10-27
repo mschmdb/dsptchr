@@ -58,6 +58,15 @@ describe("inbox", () => {
     ]);
   });
 
+  it("tracks dead entries until their notification is recorded", () => {
+    const { store } = setup();
+    store.inbox.accept([entry("a"), entry("b")]);
+    store.inbox.markFailed("a", { maxAttempts: 1, retryAt: T0, error: "E" });
+    expect(store.inbox.deadUnnotified().map((e) => e.id)).toEqual(["a"]);
+    store.inbox.markDeadNotified("a");
+    expect(store.inbox.deadUnnotified()).toEqual([]);
+  });
+
   it("never writes the payload into the audit log", () => {
     const { store } = setup();
     store.inbox.accept([entry("a")]);

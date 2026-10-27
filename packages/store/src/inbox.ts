@@ -81,6 +81,14 @@ export function inboxRepo(db: Db, audit: AuditLog, now: () => number) {
       });
     },
 
+    deadUnnotified(): InboxEntry[] {
+      return db.all("SELECT * FROM inbox WHERE state = 'dead' AND dead_notified = 0 ORDER BY seq").map(toEntry);
+    },
+
+    markDeadNotified(id: string): void {
+      db.run("UPDATE inbox SET dead_notified = 1 WHERE id = :id AND state = 'dead'", { id });
+    },
+
     // Drops payloads of entries done before `before`; the ID stays for dedupe.
     purgeDone(before: number): number {
       return db.run(

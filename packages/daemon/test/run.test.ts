@@ -34,6 +34,7 @@ function memoryInbox(calls: string[] = [], failAccepts = 0): Inbox & { accepted:
       calls.push("drain");
       return 0;
     },
+    idle: async () => {},
   };
 }
 
@@ -132,6 +133,45 @@ describe("runDaemon", () => {
     expect(ticks).toBe(3);
     expect(calls.filter((c) => c === "drain")).toHaveLength(3);
     expect(log.lines.some((l) => l.includes("tick failed"))).toBe(true);
+  });
+});
+
+describe("runDaemon with a stuck handler", () => {
+  it("keeps receiving and ticking while a drain hangs, and stops on abort", async () => {
+    const controller = new AbortController();
+    const yieldTask = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+    let receives = 0;
+    let ticks = 0;
+    const inbox: Inbox = {
+      accept: () => {},
+      drain: () => new Promise(() => {}),
+      idle: () => new Promise(() => {}),
+    };
+
+    await runDaemon({
+      channel: {
+        receive: async () => {
+          await yieldTask();
+          receives++;
+          return [text("x")];
+        },
+        send: async () => ({ conversation: "", messageRef: "" }),
+        acknowledge: async () => {},
+      },
+      inbox,
+      tick: async () => {
+        ticks++;
+        if (ticks >= 3 && receives >= 3) controller.abort();
+        return 0;
+      },
+      log: memoryLog(),
+      signal: controller.signal,
+      sleep: yieldTask,
+      shutdownGraceMs: 1,
+    });
+
+    expect(receives).toBeGreaterThanOrEqual(3);
+    expect(ticks).toBeGreaterThanOrEqual(3);
   });
 });
 

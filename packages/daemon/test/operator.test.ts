@@ -49,6 +49,27 @@ describe("text capture", () => {
   });
 });
 
+describe("failures", () => {
+  it("throws when an action fails so the inbox retries, without duplicating effects", async () => {
+    const h = setup();
+    const event = text("Buy milk");
+    h.failSends.value = true;
+    await expect(h.handler.handle(event)).rejects.toThrow(/failed/);
+    expect(h.store.todos.listActive()).toHaveLength(1);
+
+    h.failSends.value = false;
+    await h.handler.handle(event);
+    expect(h.store.todos.listActive()).toHaveLength(1);
+    expect(h.sent).toEqual([{ text: "Saved: Buy milk", conversation: "-1002" }]);
+  });
+
+  it("does not throw when the gate denies an action", async () => {
+    const h = setup();
+    h.store.flags.setPaused(true, "operator");
+    await expect(h.handler.handle(text("Buy milk"))).resolves.toBeUndefined();
+  });
+});
+
 describe("kill switch", () => {
   it.each(["stop", "Stopp", " STOP "])("pauses on %j and confirms first", async (word) => {
     const h = setup();
@@ -102,6 +123,16 @@ describe("buttons", () => {
     expect(h.acks).toEqual([
       { target: { conversation: "-1002", messageRef: "1", callbackRef: expect.any(String) }, note: "Done: Water plants" },
     ]);
+  });
+
+  it("keeps acknowledgement notes short for long todo texts", async () => {
+    const h = setup();
+    await h.handler.handle(text(`${"x".repeat(900)} @ in 1h`));
+    const id = h.store.todos.listActive()[0]?.id ?? "";
+    await h.handler.handle(button(`todo:done:${id}`));
+    await h.handler.handle(button(`todo:done:${id}`));
+    expect(h.acks.map((a) => a.note.length).every((n) => n <= 200)).toBe(true);
+    expect(h.acks).toHaveLength(2);
   });
 
   it("snoozes by one hour", async () => {

@@ -5,8 +5,9 @@ export interface InboxDeps {
   store: Store;
   handle(event: InboundEvent): Promise<void>;
   now: () => number;
-  // Called once when an event is given up; the operator should hear about it.
-  onDead(entryId: string): Promise<void>;
+  // Tells the operator that an event was set aside. Returns true once delivered;
+  // until then every drain tries again.
+  onDead(entryId: string): Promise<boolean>;
   maxAttempts?: number;
 }
 
@@ -17,14 +18,18 @@ export interface Inbox {
   accept(events: readonly InboundEvent[]): void;
   // Processes due events; returns how many succeeded. Concurrent calls share one run.
   drain(): Promise<number>;
+  // Resolves when no drain is running.
+  idle(): Promise<void>;
 }
 
 export function createInbox({ store, handle, now, onDead, maxAttempts = 5 }: InboxDeps): Inbox {
   let running: Promise<number> | undefined;
 
-  async function giveUp(id: string, error: string): Promise<void> {
-    const state = store.inbox.markFailed(id, { maxAttempts: 1, retryAt: now(), error });
-    if (state === "dead") await onDead(id);
+  async function notifyDead(): Promise<void> {
+    if (store.flags.isPaused()) return;
+    for (const entry of store.inbox.deadUnnotified()) {
+      if (await onDead(entry.id)) store.inbox.markDeadNotified(entry.id);
+    }
   }
 
   async function run(): Promise<number> {
@@ -32,13 +37,16 @@ export function createInbox({ store, handle, now, onDead, maxAttempts = 5 }: Inb
     let succeeded = 0;
     for (;;) {
       const batch = store.inbox.due().filter((entry) => !seen.has(entry.id));
-      if (batch.length === 0) return succeeded;
+      if (batch.length === 0) {
+        await notifyDead();
+        return succeeded;
+      }
 
       for (const entry of batch) {
         seen.add(entry.id);
         const parsed = inboundEventSchema.safeParse(entry.payload);
         if (!parsed.success) {
-          await giveUp(entry.id, "invalid payload");
+          store.inbox.markFailed(entry.id, { maxAttempts: 1, retryAt: now(), error: "invalid payload" });
           continue;
         }
         try {
@@ -49,8 +57,7 @@ export function createInbox({ store, handle, now, onDead, maxAttempts = 5 }: Inb
           // Only the error class goes to the audit log; messages may echo operator content.
           const name = error instanceof Error ? error.name : "unknown";
           const delay = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** entry.attempts);
-          const state = store.inbox.markFailed(entry.id, { maxAttempts, retryAt: now() + delay, error: name });
-          if (state === "dead") await onDead(entry.id);
+          store.inbox.markFailed(entry.id, { maxAttempts, retryAt: now() + delay, error: name });
         }
       }
     }
@@ -65,6 +72,9 @@ export function createInbox({ store, handle, now, onDead, maxAttempts = 5 }: Inb
         running = undefined;
       });
       return running;
+    },
+    async idle() {
+      await running?.catch(() => undefined);
     },
   };
 }
