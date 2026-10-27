@@ -64,4 +64,18 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE actions ADD COLUMN draft_hash TEXT;
   CREATE INDEX actions_type_created ON actions(type, created_at);
   `,
+  `
+  CREATE TABLE inbox (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    received_at INTEGER NOT NULL,
+    payload_json TEXT,
+    state TEXT NOT NULL CHECK (state IN ('pending', 'done', 'dead')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NOT NULL,
+    last_error TEXT,
+    done_at INTEGER
+  );
+  CREATE INDEX inbox_due ON inbox(state, next_attempt_at);
+  `,
 ];

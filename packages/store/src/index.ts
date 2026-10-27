@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { actionRepo } from "./actions.ts";
 import { auditLog } from "./audit.ts";
 import { openDb } from "./db.ts";
+import { inboxRepo } from "./inbox.ts";
 import { cursorRepo, flagRepo } from "./kv.ts";
 import { reminderRepo } from "./reminders.ts";
 import { todoRepo } from "./todos.ts";
@@ -10,6 +11,7 @@ export { AuditTamperError, type AuditEntry, type AuditInput, type AuditLog } fro
 export type { Reminder, ReminderState, ReminderRepo } from "./reminders.ts";
 export type { StoredAction, ActionRepo } from "./actions.ts";
 export type { TodoRepo } from "./todos.ts";
+export type { InboxEntry, InboxRepo, InboxState } from "./inbox.ts";
 
 export interface StoreOptions {
   path: string;
@@ -30,6 +32,7 @@ export function openStore(options: StoreOptions) {
     actions: actionRepo(db, audit, now, newId),
     cursors: cursorRepo(db, now),
     flags: flagRepo(db, audit),
+    inbox: inboxRepo(db, audit, now),
     transaction: <T>(fn: () => T): T => db.transaction(fn),
     // Test hook for asserting database-level guarantees. Not for application code.
     unsafeExec: (sql: string): void => db.exec(sql),
