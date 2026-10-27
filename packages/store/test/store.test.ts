@@ -240,6 +240,13 @@ describe("actions", () => {
     ]);
   });
 
+  it("records the gate reason in the audit log", () => {
+    const { store } = testStore();
+    const { action } = store.actions.propose({ type: "t", payload: {}, idempotencyKey: "k", actor: "system" });
+    store.actions.transition(action.id, "deny", { actor: "gate", reason: "policy: never" });
+    expect(store.audit.list({ subject: action.id }).at(-1)?.data).toMatchObject({ reason: "policy: never" });
+  });
+
   it("increments the retry counter on retry", () => {
     const { store } = testStore();
     const { action } = store.actions.propose({ type: "t", payload: {}, idempotencyKey: "k", actor: "system" });

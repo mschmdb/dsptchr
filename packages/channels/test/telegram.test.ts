@@ -72,9 +72,10 @@ describe("telegramChannel.receive", () => {
     });
 
     expect(await channel.receive()).toEqual([
-      { kind: "text", text: "Buy milk", conversation: `${GROUP}:9`, receivedAt: NOW },
+      { kind: "text", id: "telegram:5", text: "Buy milk", conversation: `${GROUP}:9`, receivedAt: NOW },
       {
         kind: "button",
+        id: "telegram:6",
         data: "todo:done:x",
         conversation: `${OPERATOR}`,
         messageRef: "77",
@@ -185,7 +186,7 @@ describe("telegramChannel.acknowledge", () => {
   it("answers the callback and removes the buttons", async () => {
     const { channel, calls } = setup({});
     await channel.acknowledge(
-      { kind: "button", data: "d", conversation: `${GROUP}`, messageRef: "77", callbackRef: "cb-1", receivedAt: NOW },
+      { kind: "button", id: "telegram:1", data: "d", conversation: `${GROUP}`, messageRef: "77", callbackRef: "cb-1", receivedAt: NOW },
       "Done",
     );
     expect(calls).toEqual([

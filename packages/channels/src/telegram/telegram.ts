@@ -79,7 +79,13 @@ export function telegramChannel(options: TelegramOptions): Channel {
       const { message } = update;
       if (message.from?.id !== options.operatorUserId) return reject("sender");
       if (!allowedChats.has(message.chat.id)) return reject("chat");
-      return { kind: "text", text: message.text ?? "", conversation: conversationOf(message.chat.id, message.message_thread_id), receivedAt };
+      return {
+        kind: "text",
+        id: `telegram:${update.update_id}`,
+        text: message.text ?? "",
+        conversation: conversationOf(message.chat.id, message.message_thread_id),
+        receivedAt,
+      };
     }
     if (update.callback_query?.data !== undefined && update.callback_query.message !== undefined) {
       const query = update.callback_query;
@@ -88,6 +94,7 @@ export function telegramChannel(options: TelegramOptions): Channel {
       if (!allowedChats.has(message.chat.id)) return reject("chat");
       return {
         kind: "button",
+        id: `telegram:${update.update_id}`,
         data: query.data ?? "",
         conversation: conversationOf(message.chat.id, message.message_thread_id),
         messageRef: String(message.message_id),

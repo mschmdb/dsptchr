@@ -72,7 +72,7 @@ export function actionRepo(db: Db, audit: AuditLog, now: () => number, newId: ()
       return Number(row?.["n"] ?? 0);
     },
 
-    transition(id: string, event: ActionEvent, options: { actor: string; result?: unknown }): StoredAction {
+    transition(id: string, event: ActionEvent, options: { actor: string; result?: unknown; reason?: string }): StoredAction {
       return db.transaction(() => {
         const action = get(id);
         if (action === undefined) {
@@ -96,7 +96,12 @@ export function actionRepo(db: Db, audit: AuditLog, now: () => number, newId: ()
           actor: options.actor,
           event: `action.${event}`,
           subject: id,
-          data: { type: action.type, from: action.state, to: state },
+          data: {
+            type: action.type,
+            from: action.state,
+            to: state,
+            ...(options.reason === undefined ? {} : { reason: options.reason }),
+          },
         });
         return get(id) as StoredAction;
       });

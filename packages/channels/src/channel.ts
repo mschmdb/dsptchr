@@ -18,10 +18,12 @@ export interface SentMessage {
   messageRef: string;
 }
 
+// `id` is stable across redelivery, so handlers can use it as idempotency key.
 export type InboundEvent =
-  | { kind: "text"; text: string; conversation: string; receivedAt: number }
+  | { kind: "text"; id: string; text: string; conversation: string; receivedAt: number }
   | {
       kind: "button";
+      id: string;
       data: string;
       conversation: string;
       messageRef: string;
