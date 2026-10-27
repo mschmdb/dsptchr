@@ -81,4 +81,17 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE inbox ADD COLUMN dead_notified INTEGER NOT NULL DEFAULT 0;
   `,
+  `
+  CREATE TABLE observations (
+    source TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('open', 'resolved')),
+    data_json TEXT NOT NULL,
+    first_seen_at INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    resolved_at INTEGER,
+    PRIMARY KEY (source, external_id)
+  );
+  `,
 ];
