@@ -1,0 +1,21 @@
+name: Idea
+description: Suggest a feature or a new connector.
+labels: [idea]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What do you want dsptchr to handle, and why?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: How could it work? For connectors, see docs/connectors.md.
+  - type: textarea
+    id: security
+    attributes:
+      label: Security
+      description: Does it read untrusted content or add an action? How do the rules in docs/security.md apply?
