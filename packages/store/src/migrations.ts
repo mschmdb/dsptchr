@@ -147,4 +147,20 @@ export const MIGRATIONS: readonly string[] = [
     decided_at INTEGER
   );
   `,
+  `
+  CREATE TABLE triage_queue (
+    id TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    urgent INTEGER NOT NULL,
+    features_json TEXT NOT NULL,
+    label TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending', 'notified', 'briefing', 'briefed', 'dropped')),
+    created_at INTEGER NOT NULL,
+    settled_at INTEGER,
+    UNIQUE (source, external_id)
+  );
+  CREATE INDEX triage_state ON triage_queue(state, created_at);
+  `,
 ];

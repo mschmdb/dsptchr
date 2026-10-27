@@ -11,7 +11,13 @@ export interface AlertLine {
   apply(): void;
   // Present when the operator can rate this item; muted items are not sent at all.
   feedback?: { source: string; externalId: string; features: Features; label: string };
+  // Urgent items trigger a triage run right away.
+  urgent?: boolean;
+  // Always sent immediately, never triaged (e.g. critical server findings).
+  direct?: boolean;
 }
+
+export type Deliver = (options: { title: string; lines: AlertLine[]; keyBase: string }) => Promise<boolean>;
 
 // One button row per item; Telegram allows a handful of rows before it gets unwieldy.
 const MAX_ITEMS_PER_MESSAGE = 8;
@@ -89,7 +95,7 @@ export function failureStreak({ store, dispatcher, source, label, now, timeZone,
 export async function sendAlertLines(
   dispatcher: Dispatcher,
   store: Store,
-  options: { title: string; lines: AlertLine[]; keyBase: string },
+  options: { title: string; lines: AlertLine[]; keyBase: string; intro?: string | null },
 ): Promise<boolean> {
   const withFeedback = options.lines.some((l) => l.feedback !== undefined);
   // Muted items count as handled: recorded, never shown.
@@ -119,9 +125,10 @@ export async function sendAlertLines(
         ]);
       }
     }
+    const intro = index === 0 && options.intro !== undefined && options.intro !== null && options.intro !== "" ? [options.intro] : [];
     const action = await dispatcher.dispatch({
       type: "message.send",
-      payload: { text: [title, ...texts].join("\n"), ...(buttons.length === 0 ? {} : { buttons }) },
+      payload: { text: [title, ...intro, ...texts].join("\n"), ...(buttons.length === 0 ? {} : { buttons }) },
       idempotencyKey: `${options.keyBase}:${index}`,
       actor: ACTOR,
     });

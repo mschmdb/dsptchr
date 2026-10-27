@@ -18,13 +18,15 @@ export interface BriefingDeps {
   now: () => number;
   // Watcher summaries for the morning briefing, one line each.
   extras?: () => string[];
+  // Called once the morning briefing went out (e.g. to mark triage items as briefed).
+  onMorningSent?: () => void;
 }
 
 const KINDS: readonly BriefingKind[] = ["morning", "evening"];
 
 // Sends each briefing once per day at its time. A briefing missed while the machine
 // slept runs once later the same day; missed days are not replayed.
-export function createBriefings({ store, dispatcher, timeZone, times, now, extras = () => [] }: BriefingDeps) {
+export function createBriefings({ store, dispatcher, timeZone, times, now, extras = () => [], onMorningSent }: BriefingDeps) {
   const cursorKey = (kind: BriefingKind): string => `briefing:${kind}`;
 
   function todaySlot(time: ClockTime): number {
@@ -74,6 +76,7 @@ export function createBriefings({ store, dispatcher, timeZone, times, now, extra
         });
         if (action.state === "executed") {
           store.cursors.set(cursorKey(kind), String(slot));
+          if (kind === "morning") onMorningSent?.();
           sent++;
         }
       }
