@@ -2,7 +2,7 @@ import type { Channel } from "@dsptchr/channels";
 import { draftHash } from "@dsptchr/gate";
 import type { StoredAction, Store } from "@dsptchr/store";
 import type { z } from "zod";
-import { messageAckSchema, messageSendSchema, todoCreateSchema, todoUpdateSchema } from "./schemas.ts";
+import { knowledgeWriteSchema, messageAckSchema, messageSendSchema, todoCreateSchema, todoUpdateSchema } from "./schemas.ts";
 
 export class ExecutorError extends Error {
   override name = "ExecutorError";
@@ -11,6 +11,8 @@ export class ExecutorError extends Error {
 export interface ExecutorDeps {
   store: Store;
   channel: Channel;
+  // The operator's knowledge base (via its CLI); every write is a local commit there.
+  knowledge?: { write(request: { path: string; content: string; expected: string; append: boolean; message: string }): Promise<string> };
 }
 
 export interface Executor {
@@ -30,7 +32,7 @@ const ACTOR = "executor";
 
 // One narrow handler per action type (AR-4). Nothing here decides; it only runs
 // actions the gate approved, after re-checking payload and draft hash.
-export function createExecutor({ store, channel }: ExecutorDeps): Executor {
+export function createExecutor({ store, channel, knowledge }: ExecutorDeps): Executor {
   const handlers: Record<string, Handler> = {
     "message.send": remote(messageSendSchema, async (payload) => {
       const sent = await channel.send({
@@ -47,6 +49,18 @@ export function createExecutor({ store, channel }: ExecutorDeps): Executor {
         payload.note,
       );
       return {};
+    }),
+
+    "knowledge.write": remote(knowledgeWriteSchema, async (payload) => {
+      if (knowledge === undefined) throw new Error("knowledge not configured");
+      const output = await knowledge.write({ ...payload, message: `dsptchr: write ${payload.path}` });
+      let revision: unknown;
+      try {
+        revision = (JSON.parse(output) as { revision?: unknown }).revision;
+      } catch {
+        revision = undefined;
+      }
+      return typeof revision === "string" ? { revision } : {};
     }),
 
     "todo.create": local(todoCreateSchema, (payload) => {

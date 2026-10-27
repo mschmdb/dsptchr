@@ -117,6 +117,13 @@ export const sourcesSchema = z
         mailIntervalMinutes: p.mail_interval_minutes,
       }))
       .optional(),
+    knowledge: z
+      .strictObject({
+        cli: z.string().startsWith("/", "must be an absolute path"),
+        root: z.string().startsWith("/", "must be an absolute path"),
+        scope: z.string().regex(/^[a-z0-9_-]{1,32}$/),
+      })
+      .optional(),
     icloud: z
       .strictObject({
         username: z.email(),
@@ -135,6 +142,7 @@ export const sourcesSchema = z
       .optional(),
   })
   .transform((s) => ({
+    ...(s.knowledge === undefined ? {} : { knowledge: s.knowledge }),
     ...(s.icloud === undefined ? {} : { icloud: s.icloud }),
     ...(s.proton === undefined ? {} : { proton: s.proton }),
     ...(s.server_health === undefined ? {} : { serverHealth: s.server_health }),

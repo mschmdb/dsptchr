@@ -31,6 +31,7 @@ export interface OrchestratorDeps {
   mail?: { forModel(): unknown };
   // Todos created from mail carry text a spoofed sender may control; the model gets a placeholder.
   isMailTodo?: (todoId: string) => boolean;
+  knowledge?: { context(query: string): Promise<string>; read(path: string, section?: string): Promise<string> };
 }
 
 export type OrchestratorOutcome = "handled" | "paused" | "budget_exhausted" | "unavailable";
@@ -156,6 +157,36 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       async search_calendar(input) {
         if (deps.calendar === undefined) return JSON.stringify({ calendar: "not configured" });
         return JSON.stringify(deps.calendar.search(input));
+      },
+
+      async search_knowledge({ query }) {
+        if (deps.knowledge === undefined) return JSON.stringify({ knowledge: "not configured" });
+        return knowledgeCall(() => deps.knowledge!.context(query));
+      },
+
+      async read_knowledge({ path, section }) {
+        if (deps.knowledge === undefined) return JSON.stringify({ knowledge: "not configured" });
+        return knowledgeCall(() => deps.knowledge!.read(path, section ?? undefined));
+      },
+
+      async write_knowledge({ path, content, mode, expected }) {
+        const revision = mode === "create" ? "new" : (expected ?? "");
+        if (revision === "") throw new ToolInputError(`${mode} needs expected = the note's current revision`);
+        let action: StoredAction;
+        try {
+          action = await dispatch(event, "knowledge.write", { path, content, expected: revision, append: mode === "append" });
+        } catch (error) {
+          // A stale revision or an invalid path is something the model can fix by reading again.
+          if (error instanceof ActionFailedError) {
+            throw new ToolInputError("write failed: the note changed, the path is invalid or outside the scope; read it again");
+          }
+          throw error;
+        }
+        if (action.state !== "executed") return `Not allowed right now (${action.state}).`;
+        const summary = `${mode === "create" ? "Created note" : mode === "append" ? "Appended to note" : "Replaced note"} ${path}.`;
+        store.orchestratorEvents.addWrite(event.id, summary);
+        const newRevision = (action.result as { revision?: string } | undefined)?.revision;
+        return newRevision === undefined ? summary : `${summary} New revision ${newRevision}.`;
       },
 
       async create_todo({ text, due_at }) {
@@ -286,6 +317,16 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       return "handled";
     },
   };
+}
+
+// Knowledge errors (bad path, unknown revision, scope) go back to the model as fixable input.
+async function knowledgeCall(call: () => Promise<string>): Promise<string> {
+  try {
+    return await call();
+  } catch (error) {
+    if (error instanceof Error && error.name === "KnowledgeError") throw new ToolInputError(error.message);
+    throw error;
+  }
 }
 
 // API and connection errors mean "model unavailable"; anything else is our bug and propagates.

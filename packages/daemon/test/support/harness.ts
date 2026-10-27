@@ -15,6 +15,9 @@ actions:
     rate_limit: { max: 30, per_minutes: 60 }
   message.ack:
     level: auto
+  knowledge.write:
+    level: auto
+    rate_limit: { max: 20, per_minutes: 60 }
   todo.create:
     level: auto
   todo.update:
@@ -49,7 +52,7 @@ export function harness(policy = POLICY): Harness {
       acks.push({ target, note });
     },
   };
-  const executor = createExecutor({ store, channel });
+  const executor = createExecutor({ store, channel, knowledge: { write: async () => '{"revision":"def456"}' } });
   const dispatcher = createDispatcher({ store, executor, policy, now: () => clock.now });
   return { store, clock, sent, acks, channel, dispatcher, failSends };
 }

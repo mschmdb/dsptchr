@@ -14,6 +14,9 @@ export {
   type OrchestratorTools,
   type ReadStateInput,
   type SearchCalendarInput,
+  type SearchKnowledgeInput,
+  type ReadKnowledgeInput,
+  type WriteKnowledgeInput,
   type UpdateTodoInput,
 } from "./orchestrator/tools.ts";
 export { readMail, MAIL_CATEGORIES, type MailInput, type MailReading } from "./readers/mail.ts";

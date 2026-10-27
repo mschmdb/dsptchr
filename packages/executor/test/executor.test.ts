@@ -101,6 +101,42 @@ describe("message.ack", () => {
   });
 });
 
+describe("knowledge.write", () => {
+  it("writes through the knowledge client and returns its result", async () => {
+    const writes: unknown[] = [];
+    const { channel } = fakeChannel();
+    const executor = createExecutor({
+      store,
+      channel,
+      knowledge: {
+        write: async (request) => {
+          writes.push(request);
+          return '{"revision":"abc123"}';
+        },
+      },
+    });
+    const payload = { path: "notes/topic.md", content: "# T\n", expected: "new", append: false };
+    const result = await executor.execute(approved("knowledge.write", payload).id);
+    expect(result).toMatchObject({ state: "executed", result: { revision: "abc123" } });
+    expect(writes).toEqual([{ ...payload, message: "dsptchr: write notes/topic.md" }]);
+  });
+
+  it("fails without a configured knowledge client", async () => {
+    const { executor } = setup();
+    const result = await executor.execute(approved("knowledge.write", { path: "notes/a.md", content: "x", expected: "new", append: false }).id);
+    expect(result).toMatchObject({ state: "failed", result: { error: "knowledge not configured" } });
+  });
+
+  it("rejects oversized content", async () => {
+    const { channel } = fakeChannel();
+    const executor = createExecutor({ store, channel, knowledge: { write: async () => "{}" } });
+    const result = await executor.execute(
+      approved("knowledge.write", { path: "notes/a.md", content: "x".repeat(30_000), expected: "new", append: false }).id,
+    );
+    expect(result.state).toBe("failed");
+  });
+});
+
 describe("todo.create", () => {
   it("creates a todo and schedules a reminder at the due time", async () => {
     const { executor } = setup();

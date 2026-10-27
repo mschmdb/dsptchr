@@ -214,6 +214,46 @@ describe("orchestrator", () => {
     expect(resultOf(createMessage.requests[1])).toContain("BMW Service");
   });
 
+  it("searches, reads and writes knowledge; writes go through the gate", async () => {
+    const h = harness();
+    const createMessage = scripted([
+      { tool: "search_knowledge", input: { query: "ops digest" } },
+      { tool: "read_knowledge", input: { path: "notes/ops.md", section: null } },
+      { tool: "write_knowledge", input: { path: "notes/ops.md", content: "- new fact", expected: "abc123", mode: "append" } },
+      { text: "Noted." },
+    ]);
+    const calls: unknown[] = [];
+    const orchestrator = createOrchestrator({
+      store: h.store,
+      dispatcher: h.dispatcher,
+      timeZone: TZ,
+      now: () => h.clock.now,
+      createMessage,
+      model: "claude-sonnet-5-5",
+      effort: "low",
+      dailyBudgetUsd: 1,
+      role: "",
+      knowledge: {
+        context: async (q: string) => {
+          calls.push(["context", q]);
+          return '{"hits":[]}';
+        },
+        read: async (path: string, section?: string) => {
+          calls.push(["read", path, section]);
+          return '{"text":"x"}';
+        },
+      },
+    });
+    await orchestrator.handle(text("note that the ops digest runs on the mini now"));
+    expect(calls).toEqual([
+      ["context", "ops digest"],
+      ["read", "notes/ops.md", undefined],
+    ]);
+    const write = h.store.audit.list().find((e) => e.event === "action.proposed" && e.data?.["type"] === "knowledge.write");
+    expect(write).toBeDefined();
+    expect(h.sent.at(-1)?.text).toContain("✓");
+  });
+
   it("snoozes and completes todos through the gate", async () => {
     const steps: Step[] = [];
     const h = setup(steps);

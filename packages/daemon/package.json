@@ -13,6 +13,7 @@
     "@dsptchr/core": "workspace:*",
     "@dsptchr/executor": "workspace:*",
     "@dsptchr/gate": "workspace:*",
+    "@dsptchr/knowledge": "workspace:*",
     "@dsptchr/store": "workspace:*",
     "@dsptchr/watchers": "workspace:*",
     "yaml": "^2.9.1",

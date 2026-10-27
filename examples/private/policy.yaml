@@ -10,3 +10,6 @@ actions:
     level: auto
   todo.update:
     level: auto
+  knowledge.write:
+    level: auto
+    rate_limit: { max: 20, per_minutes: 60 }

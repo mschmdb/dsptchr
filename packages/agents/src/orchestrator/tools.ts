@@ -18,6 +18,21 @@ export const searchCalendarInput = z.strictObject({
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
+export const searchKnowledgeInput = z.strictObject({ query: z.string().trim().min(1).max(300) });
+export const readKnowledgeInput = z.strictObject({
+  path: z.string().min(1).max(200),
+  section: z.string().max(200).nullable().optional(),
+});
+export const writeKnowledgeInput = z.strictObject({
+  path: z.string().min(1).max(200),
+  content: z.string().min(1).max(20_000),
+  mode: z.enum(["create", "replace", "append"]),
+  expected: z.string().max(64).nullable().optional(),
+});
+
+export type SearchKnowledgeInput = z.infer<typeof searchKnowledgeInput>;
+export type ReadKnowledgeInput = z.infer<typeof readKnowledgeInput>;
+export type WriteKnowledgeInput = z.infer<typeof writeKnowledgeInput>;
 export type SearchCalendarInput = z.infer<typeof searchCalendarInput>;
 export type ReadStateInput = z.infer<typeof readStateInput>;
 export type CreateTodoInput = z.infer<typeof createTodoInput>;
@@ -28,6 +43,9 @@ export type UpdateTodoInput = z.infer<typeof updateTodoInput>;
 export interface OrchestratorTools {
   read_state(input: ReadStateInput): Promise<string>;
   search_calendar(input: SearchCalendarInput): Promise<string>;
+  search_knowledge(input: SearchKnowledgeInput): Promise<string>;
+  read_knowledge(input: ReadKnowledgeInput): Promise<string>;
+  write_knowledge(input: WriteKnowledgeInput): Promise<string>;
   create_todo(input: CreateTodoInput): Promise<string>;
   update_todo(input: UpdateTodoInput): Promise<string>;
 }
@@ -40,6 +58,9 @@ export class ToolInputError extends Error {
 export const INPUT_SCHEMAS = {
   read_state: readStateInput,
   search_calendar: searchCalendarInput,
+  search_knowledge: searchKnowledgeInput,
+  read_knowledge: readKnowledgeInput,
+  write_knowledge: writeKnowledgeInput,
   create_todo: createTodoInput,
   update_todo: updateTodoInput,
 } as const;
@@ -74,6 +95,46 @@ export const TOOL_DEFINITIONS: Anthropic.Beta.BetaTool[] = [
         to: { type: "string", description: "Last day, YYYY-MM-DD" },
       },
       required: ["from", "to"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "search_knowledge",
+    description:
+      "Search the operator's knowledge base (Markdown notes). Returns matching notes with path, key fact, matching lines and revision. Use before writing, to extend an existing note instead of creating a duplicate.",
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string", description: "Question or keywords." } },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "read_knowledge",
+    description: "Read one note of the knowledge base, optionally one section. Returns its text and revision.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Path from search_knowledge, e.g. notes/topic.md" },
+        section: { type: ["string", "null"], description: "Heading of a section, or null for the whole note." },
+      },
+      required: ["path"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "write_knowledge",
+    description:
+      "Change the knowledge base. create: a new note (path must not exist). append: add text to the end of an existing note. replace: replace a whole note. append and replace need expected = the note's current revision from search_knowledge or read_knowledge. Only when the operator asks to note, remember or update something.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        content: { type: "string", description: "Markdown. For create and replace, the full note incl. frontmatter." },
+        mode: { type: "string", enum: ["create", "replace", "append"] },
+        expected: { type: ["string", "null"], description: "Current revision; null for create." },
+      },
+      required: ["path", "content", "mode"],
       additionalProperties: false,
     },
   },

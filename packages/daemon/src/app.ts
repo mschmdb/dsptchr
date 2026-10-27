@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { createKnowledgeCli } from "@dsptchr/knowledge";
 import { homedir } from "node:os";
 import { costUsd, readMail, type CreateMessage } from "@dsptchr/agents";
 import { addDays, wallClockOf, wallClockToUtc } from "@dsptchr/core";
@@ -95,7 +96,12 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     ...(options.pollTimeoutSeconds === undefined ? {} : { pollTimeoutSeconds: options.pollTimeoutSeconds }),
   });
-  const executor = createExecutor({ store, channel });
+  const knowledgeConfig = instance.sources.knowledge;
+  const knowledge =
+    knowledgeConfig === undefined
+      ? undefined
+      : createKnowledgeCli({ cli: knowledgeConfig.cli, root: knowledgeConfig.root, scope: knowledgeConfig.scope });
+  const executor = createExecutor({ store, channel, ...(knowledge === undefined ? {} : { knowledge }) });
   const dispatcher = createDispatcher({ store, executor, policy, now });
   const protonConfig = instance.sources.proton;
   const proton =
@@ -217,6 +223,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
           role: instance.role,
           ...(calendar === undefined ? {} : { calendar }),
           ...(birthdays === undefined ? {} : { birthdays }),
+          ...(knowledge === undefined ? {} : { knowledge }),
           ...(mail === undefined ? {} : { mail, isMailTodo: (id: string) => mail.isMailTodo(id) }),
         });
   const operator = createOperatorHandler({

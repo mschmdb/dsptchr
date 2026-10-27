@@ -221,6 +221,15 @@ describe("loadInstance", () => {
     });
   });
 
+  it("reads the knowledge config", async () => {
+    writeInstance("private", {
+      "instance.yaml": "timezone: UTC\n",
+      "sources.yaml": "knowledge:\n  cli: /opt/knowledge-cli\n  root: /brain\n  scope: privat\n",
+    });
+    const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });
+    expect(instance.sources.knowledge).toEqual({ cli: "/opt/knowledge-cli", root: "/brain", scope: "privat" });
+  });
+
   it("treats sources.yaml as optional", async () => {
     writeInstance("private", { "instance.yaml": "timezone: UTC\n" });
     const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });

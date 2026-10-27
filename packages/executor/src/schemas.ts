@@ -35,6 +35,14 @@ export const todoUpdateSchema = z
   })
   .refine((u) => u.event !== "snooze" || u.dueAt !== undefined, { message: "snooze needs dueAt", path: ["dueAt"] });
 
+export const knowledgeWriteSchema = z.strictObject({
+  path: z.string().min(1).max(200),
+  content: z.string().min(1).max(20_000),
+  expected: z.string().min(1).max(64),
+  append: z.boolean(),
+});
+
+export type KnowledgeWrite = z.infer<typeof knowledgeWriteSchema>;
 export type MessageSend = z.infer<typeof messageSendSchema>;
 export type MessageAck = z.infer<typeof messageAckSchema>;
 export type TodoCreate = z.infer<typeof todoCreateSchema>;
