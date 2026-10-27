@@ -5,6 +5,7 @@ import { parsePolicy } from "@dsptchr/gate";
 import { openStore, type Store } from "@dsptchr/store";
 import { createBriefings } from "./briefings.ts";
 import { createDispatcher } from "./dispatch.ts";
+import { createHeartbeat } from "./heartbeat.ts";
 import { createInbox, type Inbox } from "./inbox.ts";
 import { InstanceError, type Instance } from "./instance/loader.ts";
 import { createOperatorHandler } from "./operator.ts";
@@ -14,6 +15,7 @@ export interface AppOptions {
   fetch?: typeof globalThis.fetch;
   now?: () => number;
   pollTimeoutSeconds?: number;
+  onHeartbeatError?: (error: string) => void;
 }
 
 export interface App {
@@ -46,6 +48,16 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
     throw new InstanceError("instance.yaml: channels.telegram is required");
   }
   const token = await instance.secret(telegram.botToken);
+  const heartbeatConfig = instance.config.heartbeat;
+  const heartbeat =
+    heartbeatConfig === undefined
+      ? undefined
+      : createHeartbeat({
+          url: await instance.secret(heartbeatConfig.pushUrl),
+          intervalMs: heartbeatConfig.intervalMinutes * 60_000,
+          now,
+          ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+        });
 
   const store = openStore({ path: instance.paths.stateDb, now });
   const channel = telegramChannel({
@@ -95,7 +107,13 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
     inbox,
     tick: async () => {
       store.inbox.purgeDone(now() - INBOX_RETENTION_MS);
-      return (await scheduler.tick()) + (await briefings.tick());
+      const sent = (await scheduler.tick()) + (await briefings.tick());
+      // Only a completed tick counts as alive; a throwing tick skips the beat.
+      const beat = await heartbeat?.beat(store.flags.isPaused() ? "paused" : "ok");
+      if (beat !== undefined && !beat.sent && beat.error !== undefined) {
+        options.onHeartbeatError?.(beat.error);
+      }
+      return sent;
     },
     close: () => store.close(),
   };

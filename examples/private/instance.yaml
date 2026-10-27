@@ -8,3 +8,6 @@ channels:
 briefings:
   morning: "07:30"
   evening: "17:30"
+heartbeat:
+  push_url: heartbeat_push_url       # name of an entry in secrets.yaml
+  interval_minutes: 5

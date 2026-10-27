@@ -132,6 +132,18 @@ describe("loadInstance", () => {
     expect(instance.config.briefings).toEqual({ morning: { hour: 7, minute: 30 }, evening: { hour: 17, minute: 30 } });
   });
 
+  it("reads the heartbeat config", async () => {
+    writeInstance("private", { "instance.yaml": "timezone: UTC\nheartbeat:\n  push_url: heartbeat_url\n  interval_minutes: 5\n" });
+    const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });
+    expect(instance.config.heartbeat).toEqual({ pushUrl: "heartbeat_url", intervalMinutes: 5 });
+  });
+
+  it("defaults the heartbeat interval", async () => {
+    writeInstance("private", { "instance.yaml": "timezone: UTC\nheartbeat:\n  push_url: heartbeat_url\n" });
+    const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });
+    expect(instance.config.heartbeat).toEqual({ pushUrl: "heartbeat_url", intervalMinutes: 5 });
+  });
+
   it("defaults to no briefings", async () => {
     writeInstance("private", { "instance.yaml": "timezone: UTC\n" });
     const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });

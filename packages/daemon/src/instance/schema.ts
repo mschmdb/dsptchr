@@ -29,6 +29,13 @@ export const instanceConfigSchema = z.strictObject({
       telegram: telegramSchema.optional(),
     })
     .default({}),
+  heartbeat: z
+    .strictObject({
+      push_url: z.string().min(1),
+      interval_minutes: z.number().int().min(1).max(60).default(5),
+    })
+    .transform((h) => ({ pushUrl: h.push_url, intervalMinutes: h.interval_minutes }))
+    .optional(),
   briefings: z
     .strictObject({
       morning: clockTime.optional(),

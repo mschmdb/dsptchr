@@ -20,8 +20,13 @@ function fakeTelegram() {
   const sent: Json[] = [];
   const calls: string[] = [];
   let messageId = 100;
+  const heartbeats: string[] = [];
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = String(input);
+    if (url.startsWith("https://monitor.example.com/")) {
+      heartbeats.push(url);
+      return new Response("{}");
+    }
     const method = url.slice(url.lastIndexOf("/") + 1);
     calls.push(method);
     const body = JSON.parse(String(init?.body)) as Json;
@@ -33,7 +38,7 @@ function fakeTelegram() {
     }
     return new Response(JSON.stringify({ ok: true, result }));
   };
-  return { fetch, inbox, sent, calls };
+  return { fetch, inbox, sent, calls, heartbeats };
 }
 
 describe("phase 1 milestone", () => {
@@ -153,6 +158,33 @@ describe("phase 1 milestone", () => {
     await app.inbox.drain();
     expect(telegram.sent.length).toBe(before + 1);
     expect(String(telegram.sent.at(-1)?.["text"])).toContain("dead-1");
+  });
+
+  it("pushes a heartbeat after a completed tick, also while paused", async () => {
+    const dir = join(home, "test");
+    writeFileSync(
+      join(dir, "instance.yaml"),
+      `timezone: Europe/Berlin\nheartbeat:\n  push_url: hb\nchannels:\n  telegram:\n    operator_user_id: ${OPERATOR}\n    group_id: ${GROUP}\n    bot_token: bot\n`,
+    );
+    writeFileSync(
+      join(dir, "secrets.yaml"),
+      "bot:\n  keychain:\n    service: dsptchr.test\n    account: bot\nhb:\n  keychain:\n    service: dsptchr.test\n    account: hb\n",
+    );
+    app.close();
+    const secrets: Record<string, string> = { bot: TOKEN, hb: "https://monitor.example.com/api/push/HB-TOKEN" };
+    const instance = await loadInstance("test", { home, keychain: { read: async (ref) => secrets[ref.account] } });
+    app = await createApp(instance, { fetch: telegram.fetch, now: () => clock.now, pollTimeoutSeconds: 0 });
+
+    await app.tick();
+    app.store.flags.setPaused(true, "operator");
+    clock.now += 5 * 60_000;
+    await app.tick();
+
+    expect(telegram.heartbeats).toEqual([
+      "https://monitor.example.com/api/push/HB-TOKEN?status=up&msg=ok",
+      "https://monitor.example.com/api/push/HB-TOKEN?status=up&msg=paused",
+    ]);
+    expect(JSON.stringify(app.store.audit.list())).not.toContain("HB-TOKEN");
   });
 
   it("persists the Telegram offset so restarts do not replay handled updates", async () => {
