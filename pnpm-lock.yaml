@@ -32,9 +32,21 @@ importers:
 
   packages/daemon:
     dependencies:
+      '@dsptchr/channels':
+        specifier: workspace:*
+        version: link:../channels
       '@dsptchr/core':
         specifier: workspace:*
         version: link:../core
+      '@dsptchr/executor':
+        specifier: workspace:*
+        version: link:../executor
+      '@dsptchr/gate':
+        specifier: workspace:*
+        version: link:../gate
+      '@dsptchr/store':
+        specifier: workspace:*
+        version: link:../store
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
