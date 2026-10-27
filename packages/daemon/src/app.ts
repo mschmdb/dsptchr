@@ -12,7 +12,8 @@ import { openStore, type Store } from "@dsptchr/store";
 import { createBriefings } from "./briefings.ts";
 import { createDispatcher } from "./dispatch.ts";
 import { createICloudSource, createPlausibleSource, createProtonSource, fetchGithubLogin, fetchRepoSnapshot, runProton, runServerHealth } from "@dsptchr/watchers";
-import { guarded } from "./alerts.ts";
+import { guarded, sendAlertLines, type Deliver } from "./alerts.ts";
+import { createTriage } from "./triage.ts";
 import { ANALYTICS_SOURCE, createAnalyticsMonitor } from "./analytics.ts";
 import { createBackupJob } from "./backups.ts";
 import { BIRTHDAY_SOURCE, createBirthdayMonitor } from "./birthdays.ts";
@@ -193,6 +194,21 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
   const withinModelBudget = (): boolean =>
     orchestratorConfig !== undefined && store.runs.costSince(startOfToday()) < orchestratorConfig.dailyBudgetUsd;
 
+  // Lagebild: with an orchestrator, watcher alerts are queued and triaged; critical ones and
+  // status lines still go out directly. Bound late because triage needs the orchestrator.
+  let triage: ReturnType<typeof createTriage> | undefined;
+  const deliver: Deliver = async ({ title, lines, keyBase }) => {
+    if (triage === undefined) return sendAlertLines(dispatcher, store, { title, lines, keyBase });
+    const direct = lines.filter((l) => l.direct === true);
+    const sent = direct.length === 0 || (await sendAlertLines(dispatcher, store, { title, lines: direct, keyBase: `${keyBase}:direct` }));
+    await triage.submit(
+      lines.filter((l) => l.direct !== true),
+      (l) => l.urgent === true,
+      title,
+    );
+    return sent;
+  };
+
   const mail =
     protonConfig === undefined || proton === undefined
       ? undefined
@@ -226,6 +242,8 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
           mayClassify: withinModelBudget,
           ownAddresses: protonConfig.ownAddresses,
           ...(protonConfig.todoAddress === undefined ? {} : { todoAddress: protonConfig.todoAddress }),
+          deliver,
+          reportAll: orchestratorConfig !== undefined,
           intervalMs: protonConfig.mailIntervalMinutes * 60_000,
           now,
           timeZone: instance.config.timezone,
@@ -250,6 +268,18 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
           ...(analytics === undefined ? {} : { analytics }),
           ...(mail === undefined ? {} : { mail, isMailTodo: (id: string) => mail.isMailTodo(id) }),
         });
+  if (orchestrator !== undefined && orchestratorConfig !== undefined) {
+    triage = createTriage({
+      store,
+      dispatcher,
+      now,
+      timeZone: instance.config.timezone,
+      hours: { from: orchestratorConfig.triage.from, to: orchestratorConfig.triage.to },
+      intervalMs: orchestratorConfig.triage.intervalMinutes * 60_000,
+      run: (items) => orchestrator.triage(items),
+    });
+  }
+
   const operator = createOperatorHandler({
     store,
     dispatcher,
@@ -269,9 +299,11 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
     timeZone: instance.config.timezone,
     times: instance.config.briefings,
     now,
+    onMorningSent: () => triage?.briefed(),
     extras: () => {
       const findings = store.observations.listOpen(HEALTH_SOURCE).length;
       return [
+        ...(triage?.briefing() ?? []),
         ...(calendar?.today() ?? []),
         ...(birthdays?.briefing() ?? []),
         ...(mail?.briefing() ?? []),
@@ -288,6 +320,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
       : createHealthMonitor({
           store,
           dispatcher,
+          deliver,
           check: () =>
             runServerHealth({
               command: healthConfig.command,
@@ -310,6 +343,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
           return createGithubMonitor({
             store,
             dispatcher,
+            deliver,
             repos: githubConfig.repos.map((r) => r.name),
             fetchRepo: async (repo) => {
               self ??= await fetchGithubLogin({ token, ...fetchOptions });
@@ -375,6 +409,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
       startWatcher(CALENDAR_SOURCE, calendarWatcher);
       startWatcher(BIRTHDAY_SOURCE, birthdayWatcher);
       startWatcher("backups", backups);
+      startWatcher("triage", triage);
       startWatcher(ANALYTICS_SOURCE, analyticsWatcher);
       startWatcher(MAIL_SOURCE, mailWatcher);
       const sent = (await scheduler.tick()) + (await briefings.tick());

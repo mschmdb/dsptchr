@@ -122,4 +122,45 @@ export const MIGRATIONS: readonly string[] = [
     reply TEXT
   );
   `,
+  `
+  CREATE TABLE notified_items (
+    ref TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    features_json TEXT NOT NULL,
+    label TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE (source, external_id)
+  );
+  CREATE TABLE feedback (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    at INTEGER NOT NULL,
+    ref TEXT NOT NULL REFERENCES notified_items(ref),
+    verdict TEXT NOT NULL CHECK (verdict IN ('relevant', 'irrelevant', 'mute'))
+  );
+  CREATE TABLE rules (
+    id TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    match_json TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('proposed', 'active', 'rejected')),
+    decided_at INTEGER
+  );
+  `,
+  `
+  CREATE TABLE triage_queue (
+    id TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    urgent INTEGER NOT NULL,
+    features_json TEXT NOT NULL,
+    label TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending', 'notified', 'briefing', 'briefed', 'dropped')),
+    created_at INTEGER NOT NULL,
+    settled_at INTEGER,
+    UNIQUE (source, external_id)
+  );
+  CREATE INDEX triage_state ON triage_queue(state, created_at);
+  `,
 ];

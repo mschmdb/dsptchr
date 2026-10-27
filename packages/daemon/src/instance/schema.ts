@@ -35,8 +35,21 @@ export const instanceConfigSchema = z.strictObject({
       model: z.string().regex(/^claude-[a-z0-9-]+$/).default("claude-sonnet-5-5"),
       effort: z.enum(["low", "medium", "high"]).default("medium"),
       daily_budget_usd: z.number().min(0).max(100).default(1),
+      triage: z
+        .strictObject({
+          from: clockTime.default({ hour: 8, minute: 0 }),
+          to: clockTime.default({ hour: 21, minute: 0 }),
+          interval_minutes: z.number().int().min(10).max(720).default(60),
+        })
+        .default({ from: { hour: 8, minute: 0 }, to: { hour: 21, minute: 0 }, interval_minutes: 60 }),
     })
-    .transform((o) => ({ apiKey: o.api_key, model: o.model, effort: o.effort, dailyBudgetUsd: o.daily_budget_usd }))
+    .transform((o) => ({
+      apiKey: o.api_key,
+      model: o.model,
+      effort: o.effort,
+      dailyBudgetUsd: o.daily_budget_usd,
+      triage: { from: o.triage.from, to: o.triage.to, intervalMinutes: o.triage.interval_minutes },
+    }))
     .optional(),
   heartbeat: z
     .strictObject({

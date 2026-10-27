@@ -72,7 +72,8 @@ describe("mail monitor", () => {
     await h.run([a, b]);
 
     expect(h.read).toEqual(["Server down", "Newsletter"]);
-    expect(h.sent).toEqual([{ text: "Mail\n- ops@example.com: Server down\n  Backup failed tonight." }]);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]?.text).toBe("Mail\n1. ops@example.com: Server down\n  Backup failed tonight.");
     expect(h.store.observations.listOpen(MAIL_SOURCE)).toHaveLength(2);
   });
 
@@ -120,7 +121,7 @@ describe("mail monitor", () => {
     const h = setup({ readings: { "x‮": { category: "important", urgency: "now", actionNeeded: true, summary: "line1\nline2" } } });
     await h.run([]);
     await h.run([h.mail(summary("m1", -1, "a@example.com", "x‮"))]);
-    expect(h.sent[0]?.text).toBe("Mail\n- a@example.com: x\n  line1 line2");
+    expect(h.sent[0]?.text).toBe("Mail\n1. a@example.com: x\n  line1 line2");
   });
 });
 

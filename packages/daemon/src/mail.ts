@@ -2,7 +2,7 @@ import type { MailReading } from "@dsptchr/agents";
 import { parseDue, splitTodoInput } from "@dsptchr/core";
 import type { Store } from "@dsptchr/store";
 import { sanitizeUntrusted, type MailMessage, type MailSummary } from "@dsptchr/watchers";
-import { claimRun, cursorsFor, sendAlertLines, type AlertLine } from "./alerts.ts";
+import { claimRun, cursorsFor, sendAlertLines, type AlertLine, type Deliver } from "./alerts.ts";
 import type { Dispatcher } from "./dispatch.ts";
 import { formatDue } from "./format.ts";
 
@@ -12,8 +12,11 @@ const ACTOR = "watcher";
 const KEEP_MS = 3 * 86_400_000;
 const DAY_MS = 86_400_000;
 const WORTH_READING = new Set(["personal", "important"]);
+const REPORTABLE = new Set(["personal", "important", "transactional", "notification"]);
 
 export interface MailMonitorDeps {
+  // How alerts reach the operator; defaults to sending them directly.
+  deliver?: Deliver;
   store: Store;
   dispatcher: Dispatcher;
   listMail(window: { since: number; now: number }): Promise<{ mails: MailSummary[]; complete: boolean }>;
@@ -22,6 +25,8 @@ export interface MailMonitorDeps {
   mayClassify(): boolean;
   ownAddresses: readonly string[];
   todoAddress?: string;
+  // With triage, every mail worth a look is reported and triage decides; without it only urgent ones.
+  reportAll?: boolean;
   intervalMs: number;
   now: () => number;
   timeZone: string;
@@ -41,6 +46,7 @@ interface MailData {
 // operator sanitized, the orchestrator sees counts only (AR-2, D-50).
 export function createMailMonitor(deps: MailMonitorDeps) {
   const { store, dispatcher, now, timeZone } = deps;
+  const deliver: Deliver = deps.deliver ?? ((options) => sendAlertLines(dispatcher, store, options));
   const cursors = cursorsFor(store, SOURCE);
   const own = new Set(deps.ownAddresses.map((a) => a.toLowerCase()));
   const todoAddress = deps.todoAddress?.toLowerCase();
@@ -108,8 +114,20 @@ export function createMailMonitor(deps: MailMonitorDeps) {
     const observe = (): void => {
       store.observations.observe({ source: SOURCE, externalId: message.id, version: reading.category, data });
     };
-    if (reading.urgency === "now" && WORTH_READING.has(reading.category)) {
-      return { text: `- ${data.from}: ${data.subject}${data.summary === "" ? "" : `\n  ${data.summary}`}`, apply: observe };
+    const urgent = reading.urgency === "now" && WORTH_READING.has(reading.category);
+    if (urgent || (deps.reportAll === true && REPORTABLE.has(reading.category))) {
+      const domain = (message.fromAddress.split("@")[1] ?? "").toLowerCase().replace(/[^a-z0-9.-]/g, "").slice(0, 100);
+      return {
+        text: `- ${data.from}: ${data.subject}${data.summary === "" ? "" : `\n  ${data.summary}`}`,
+        apply: observe,
+        feedback: {
+          source: "mail",
+          externalId: message.id,
+          features: { source: "mail", category: reading.category, domain, urgency: reading.urgency, action: reading.actionNeeded ? "yes" : "no" },
+          label: `${data.from}: ${data.subject}`,
+        },
+        urgent,
+      };
     }
     observe();
     return undefined;
@@ -156,7 +174,7 @@ export function createMailMonitor(deps: MailMonitorDeps) {
         if (result !== undefined) lines.push(result);
         latest = Math.max(latest, mail.time);
       }
-      const delivered = await sendAlertLines(dispatcher, store, { title: "Mail", lines, keyBase: `${SOURCE}:${now()}` });
+      const delivered = await deliver({ title: "Mail", lines, keyBase: `${SOURCE}:${now()}` });
       // The cursor only moves when every mail up to it is recorded; the rest is retried.
       if (allHandled && delivered) cursors.set("since", latest);
       for (const open of store.observations.listOpen(SOURCE)) {

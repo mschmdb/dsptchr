@@ -1,6 +1,6 @@
 import type { Store } from "@dsptchr/store";
 import { sanitizeUntrusted, type GithubItem, type RepoSnapshot } from "@dsptchr/watchers";
-import { claimRun, failureStreak, sendAlertLines, type AlertLine } from "./alerts.ts";
+import { claimRun, failureStreak, sendAlertLines, type AlertLine, type Deliver } from "./alerts.ts";
 import type { Dispatcher } from "./dispatch.ts";
 
 export const GITHUB_SOURCE = "github";
@@ -12,6 +12,8 @@ const GREEN = new Set(["success"]);
 const GITHUB_URL = /^https:\/\/github\.com\/[^\s]+$/;
 
 export interface GithubMonitorDeps {
+  // How alerts reach the operator; defaults to sending them directly.
+  deliver?: Deliver;
   store: Store;
   dispatcher: Dispatcher;
   repos: readonly string[];
@@ -42,6 +44,7 @@ interface CiData {
 // sanitized and only ever sent to the operator, never to a model (D-45).
 export function createGithubMonitor(deps: GithubMonitorDeps) {
   const { store, dispatcher, now } = deps;
+  const deliver: Deliver = deps.deliver ?? ((options) => sendAlertLines(dispatcher, store, options));
   const short = (repo: string): string => repo.split("/")[1] ?? repo;
   // One failure streak per repository, so a broken repository alerts even when others work.
   const streaks = new Map(
@@ -91,6 +94,12 @@ export function createGithubMonitor(deps: GithubMonitorDeps) {
         lines.push({
           text: withLink(`- ${label} ${short(repo)}#${item.number}: ${data.title}`, safeUrl(item.url)),
           apply: observe,
+          feedback: {
+            source: "github",
+            externalId,
+            features: { source: "github", repo, kind, author: item.author },
+            label: `${label} ${short(repo)}#${item.number}`,
+          },
         });
       } else {
         observe();
@@ -114,7 +123,11 @@ export function createGithubMonitor(deps: GithubMonitorDeps) {
       const existing = store.observations.get(SOURCE, externalId);
       const was = existing === undefined || existing.state === "resolved" ? undefined : existing.version;
       if (version === "red" && was !== "red") {
-        lines.push({ text: withLink(`- CI red: ${short(repo)} ${data.workflow}`, safeUrl(run.url)), apply: observe });
+        lines.push({
+          text: withLink(`- CI red: ${short(repo)} ${data.workflow}`, safeUrl(run.url)),
+          apply: observe,
+          feedback: { source: "github", externalId, features: { source: "github", repo, kind: "ci" }, label: `CI red: ${short(repo)}` },
+        });
       } else if (version === "green" && was === "red") {
         lines.push({ text: `- CI green again: ${short(repo)} ${data.workflow}`, apply: observe });
       } else {
@@ -157,7 +170,7 @@ export function createGithubMonitor(deps: GithubMonitorDeps) {
           lines.push(...repoLines);
         }
       }
-      await sendAlertLines(dispatcher, store, { title: "GitHub", lines, keyBase: `${SOURCE}:${now()}` });
+      await deliver({ title: "GitHub", lines, keyBase: `${SOURCE}:${now()}` });
       return true;
     },
 

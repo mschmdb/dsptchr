@@ -3,9 +3,12 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   costUsd,
   runOrchestrator,
+  runTriage,
   ToolInputError,
   type CreateMessage,
   type OrchestratorTools,
+  type TriageDecision,
+  type TriageItemRef,
 } from "@dsptchr/agents";
 import type { InboundEvent } from "@dsptchr/channels";
 import { wallClockOf, wallClockToUtc } from "@dsptchr/core";
@@ -244,7 +247,43 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     return writes.length === 0 ? undefined : [`${reason} Done so far:`, ...writes.map((w) => `- ${w}`)].join("\n");
   }
 
+  const recordUsage = (usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }) =>
+    store.runs.record({
+      role: ACTOR,
+      model: deps.model,
+      inputTokens: usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
+      outputTokens: usage.outputTokens,
+      costUsd: costUsd(deps.model, usage),
+      outcome: "response",
+    });
+
   return {
+    // Lagebild run over queued watcher items; undefined means "no decision" (paused, budget,
+    // API trouble) and the caller falls back to deterministic delivery.
+    async triage(items: readonly TriageItemRef[]): Promise<TriageDecision | undefined> {
+      if (store.flags.isPaused() || !withinBudget()) return undefined;
+      const runId = `triage:${now()}`;
+      const handlers = tools({ kind: "text", id: runId, text: "", conversation: "triage", receivedAt: now() });
+      try {
+        const result = await runTriage({
+          createMessage: deps.createMessage,
+          model: deps.model,
+          effort: deps.effort,
+          context: `Current time: ${formatNow(now(), timeZone)}`,
+          items,
+          feedback: store.feedback.summary(),
+          rules: store.rules.active().map((r) => r.match),
+          tools: { read_state: handlers.read_state, search_calendar: handlers.search_calendar, create_todo: handlers.create_todo },
+          onResponse: recordUsage,
+          mayCall: withinBudget,
+        });
+        return result.decision;
+      } catch (error) {
+        if (isModelApiError(error)) return undefined;
+        throw error;
+      }
+    },
+
     async handle(event: Extract<InboundEvent, { kind: "text" }>): Promise<OrchestratorOutcome> {
       if (store.flags.isPaused()) return "paused";
 

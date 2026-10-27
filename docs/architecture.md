@@ -83,7 +83,7 @@ Do not depend on a password-manager SSH or secret agent that locks with the scre
 ## Scheduling
 
 - Watchers every 10–15 minutes (configurable per source).
-- The orchestrator runs per operator message. Watcher alerts are deterministic; batched orchestrator runs over watcher items are planned.
+- The orchestrator runs per operator message. Watcher items go to a triage queue; a triage run (Lagebild, D-63) decides hourly inside waking hours, and immediately for urgent items, what the operator sees now, in the morning briefing, or never. Critical health findings and watcher failures are sent directly.
 - Briefings at configured times. Reminders fire from the scheduler without a model call.
 - On wake, watchers catch up from their cursors; a briefing missed earlier the same day runs once.
 

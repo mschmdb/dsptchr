@@ -1,9 +1,11 @@
 import type { Store } from "@dsptchr/store";
 import { sanitizeUntrusted, type HealthFinding, type HealthReport } from "@dsptchr/watchers";
-import { claimRun, failureStreak, sendAlertLines, type AlertLine } from "./alerts.ts";
+import { claimRun, failureStreak, sendAlertLines, type AlertLine, type Deliver } from "./alerts.ts";
 import type { Dispatcher } from "./dispatch.ts";
 
 export interface HealthMonitorDeps {
+  // How alerts reach the operator; defaults to sending them directly.
+  deliver?: Deliver;
   store: Store;
   dispatcher: Dispatcher;
   check(): Promise<HealthReport>;
@@ -29,6 +31,7 @@ export function createHealthMonitor({
   now,
   timeZone = "UTC",
   failureThreshold = 3,
+  deliver = (options) => sendAlertLines(dispatcher, store, options),
 }: HealthMonitorDeps) {
   const streak = failureStreak({
     store,
@@ -56,10 +59,18 @@ export function createHealthMonitor({
           data: dataOf(finding),
         });
       };
+      const feedback = {
+        source: "health",
+        externalId: finding.key,
+        features: { source: "health", host: dataOf(finding).host, check: checkName(finding.key) },
+        label: line(finding).slice(2),
+      };
+      // Critical findings bypass triage: no model decides whether a server outage is shown.
+      const flags = { urgent: finding.severity === "crit", direct: finding.severity === "crit" };
       if (existing === undefined || existing.state === "resolved") {
-        lines.push({ text: line(finding), apply: observe });
+        lines.push({ text: line(finding), apply: observe, feedback, ...flags });
       } else if (existing.version !== finding.severity) {
-        lines.push({ text: `${line(finding)} (was ${existing.version})`, apply: observe });
+        lines.push({ text: `${line(finding)} (was ${existing.version})`, apply: observe, feedback, ...flags });
       } else {
         observe();
       }
@@ -88,7 +99,7 @@ export function createHealthMonitor({
         return true;
       }
       streak.succeeded();
-      await sendAlertLines(dispatcher, store, { title: "Server health", lines: diff(report), keyBase: `${SOURCE}:${now()}` });
+      await deliver({ title: "Server health", lines: diff(report), keyBase: `${SOURCE}:${now()}` });
       return true;
     },
   };
@@ -101,4 +112,10 @@ function dataOf(finding: HealthFinding): { host: string; text: string } {
 function line(finding: HealthFinding): string {
   const { host, text } = dataOf(finding);
   return `- ${finding.severity.toUpperCase()} ${host}: ${text}`;
+}
+
+// Rule suffix of a finding key in a fixed vocabulary, for feedback and mute rules.
+function checkName(key: string): string {
+  const last = key.split(":").at(-1) ?? "";
+  return /^[a-z_]{1,24}$/.test(last) ? last : "other";
 }

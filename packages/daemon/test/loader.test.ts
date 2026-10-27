@@ -261,6 +261,7 @@ describe("loadInstance", () => {
       model: "claude-sonnet-5-5",
       effort: "medium",
       dailyBudgetUsd: 1,
+      triage: { from: { hour: 8, minute: 0 }, to: { hour: 21, minute: 0 }, intervalMinutes: 60 },
     });
   });
 

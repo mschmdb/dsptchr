@@ -20,3 +20,13 @@ export {
   type UpdateTodoInput,
 } from "./orchestrator/tools.ts";
 export { readMail, MAIL_CATEGORIES, type MailInput, type MailReading } from "./readers/mail.ts";
+export { runToolLoop, type LoopRequest, type LoopResult, type ToolSpec } from "./loop.ts";
+export {
+  runTriage,
+  TRIAGE_PROMPT,
+  type TriageDecision,
+  type TriageItemRef,
+  type TriageRequest,
+  type TriageResult,
+  type TriageTools,
+} from "./triage/run.ts";
