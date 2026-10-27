@@ -42,6 +42,33 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
 
+  packages/executor:
+    dependencies:
+      '@dsptchr/channels':
+        specifier: workspace:*
+        version: link:../channels
+      '@dsptchr/core':
+        specifier: workspace:*
+        version: link:../core
+      '@dsptchr/gate':
+        specifier: workspace:*
+        version: link:../gate
+      '@dsptchr/store':
+        specifier: workspace:*
+        version: link:../store
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
+  packages/gate:
+    dependencies:
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
   packages/store:
     dependencies:
       '@dsptchr/core':
