@@ -312,3 +312,35 @@ describe("persistence", () => {
     }
   });
 });
+
+describe("backup", () => {
+  it("writes a consistent copy that opens with all data", () => {
+    const dir = mkdtempSync(join(tmpdir(), "dsptchr-backup-"));
+    try {
+      const store = openStore({ path: join(dir, "state.db"), now: () => T0 });
+      store.todos.create({ text: "keep me", actor: "operator" });
+      const target = join(dir, "copy.db");
+      store.backup(target);
+      store.close();
+      const copy = openStore({ path: target, now: () => T0 });
+      expect(copy.todos.listActive().map((t) => t.text)).toEqual(["keep me"]);
+      expect(copy.audit.verify()).toBe(1);
+      copy.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to overwrite an existing file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "dsptchr-backup-"));
+    try {
+      const store = openStore({ path: join(dir, "state.db"), now: () => T0 });
+      const target = join(dir, "copy.db");
+      store.backup(target);
+      expect(() => store.backup(target)).toThrow();
+      store.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

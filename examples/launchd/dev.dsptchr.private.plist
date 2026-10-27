@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Copy to ~/Library/LaunchAgents/, replace the placeholder paths, then:
+  Copy to ~/Library/LaunchAgents/, replace /path/to/home, then:
     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.dsptchr.private.plist
   A LaunchAgent (not a LaunchDaemon) runs in the user session, so it can read the login keychain.
+
+  - Node: a stable path that survives Node upgrades, e.g. fnm's default alias
+    (~/.local/share/fnm/aliases/default/bin/node) or Homebrew's /opt/homebrew/bin/node.
+  - Code: a separate runtime checkout on main (see scripts/deploy.sh), not your working copy.
+  - Logs: the daemon writes and rotates ~/Library/Logs/dsptchr/<instance>.log itself;
+    the file below only catches crashes before logging starts.
 -->
 <plist version="1.0">
 <dict>
@@ -11,20 +17,24 @@
   <string>dev.dsptchr.private</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/path/to/node</string>
-    <string>/path/to/dsptchr/packages/daemon/src/main.ts</string>
+    <string>/path/to/home/.local/share/fnm/aliases/default/bin/node</string>
+    <string>/path/to/home/.local/share/dsptchr/app/packages/daemon/src/main.ts</string>
     <string>--instance</string>
     <string>private</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/path/to/dsptchr</string>
+  <string>/path/to/home/.local/share/dsptchr/app</string>
   <key>KeepAlive</key>
   <true/>
   <key>RunAtLoad</key>
   <true/>
   <key>ThrottleInterval</key>
   <integer>30</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
   <key>StandardErrorPath</key>
-  <string>/path/to/home/Library/Logs/dsptchr/private.log</string>
+  <string>/path/to/home/Library/Logs/dsptchr/private.crash.log</string>
+  <key>StandardOutPath</key>
+  <string>/path/to/home/Library/Logs/dsptchr/private.crash.log</string>
 </dict>
 </plist>

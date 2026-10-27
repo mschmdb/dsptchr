@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { loadKnowledgeAdapter } from "@dsptchr/knowledge";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { costUsd, readMail, type CreateMessage } from "@dsptchr/agents";
 import { addDays, wallClockOf, wallClockToUtc } from "@dsptchr/core";
 import type { CalendarEvent } from "@dsptchr/watchers";
@@ -11,6 +12,8 @@ import { openStore, type Store } from "@dsptchr/store";
 import { createBriefings } from "./briefings.ts";
 import { createDispatcher } from "./dispatch.ts";
 import { createICloudSource, createProtonSource, fetchGithubLogin, fetchRepoSnapshot, runProton, runServerHealth } from "@dsptchr/watchers";
+import { guarded } from "./alerts.ts";
+import { createBackupJob } from "./backups.ts";
 import { BIRTHDAY_SOURCE, createBirthdayMonitor } from "./birthdays.ts";
 import { CALENDAR_SOURCE, createCalendarMonitor } from "./calendar.ts";
 import { createMailMonitor, MAIL_SOURCE } from "./mail.ts";
@@ -296,6 +299,14 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
           });
         })();
 
+  const timeZone = instance.config.timezone;
+  const alerting = (source: string, label: string) => ({ store, dispatcher, source, label, now, timeZone, threshold: 3 });
+  const calendarWatcher = calendar === undefined ? undefined : guarded(calendar, alerting(`${CALENDAR_SOURCE}:watcher`, "Calendar watcher"));
+  const mailWatcher = mail === undefined ? undefined : guarded(mail, alerting(`${MAIL_SOURCE}:watcher`, "Mail watcher"));
+  const birthdayWatcher =
+    birthdays === undefined ? undefined : guarded(birthdays, alerting(`${BIRTHDAY_SOURCE}:watcher`, "Birthday watcher"));
+  const backups = createBackupJob({ store, dir: join(instance.dir, "backups"), keep: 14, now, timeZone });
+
   // Watchers may take minutes (SSH, many API calls); each runs beside the scheduler, never twice at once.
   const running = new Map<string, Promise<unknown>>();
   const startWatcher = (name: string, watcher: { tick(): Promise<boolean> } | undefined): void => {
@@ -337,9 +348,10 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
       store.orchestratorEvents.purgeBefore(now() - CONVERSATION_RETENTION_MS);
       startWatcher(HEALTH_SOURCE, health);
       startWatcher(GITHUB_SOURCE, github);
-      startWatcher(CALENDAR_SOURCE, calendar);
-      startWatcher(BIRTHDAY_SOURCE, birthdays);
-      startWatcher(MAIL_SOURCE, mail);
+      startWatcher(CALENDAR_SOURCE, calendarWatcher);
+      startWatcher(BIRTHDAY_SOURCE, birthdayWatcher);
+      startWatcher("backups", backups);
+      startWatcher(MAIL_SOURCE, mailWatcher);
       const sent = (await scheduler.tick()) + (await briefings.tick());
       // Only a completed tick counts as alive; a throwing tick skips the beat.
       const beat = await heartbeat?.beat(store.flags.isPaused() ? "paused" : "ok");

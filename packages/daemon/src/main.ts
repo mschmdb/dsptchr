@@ -1,7 +1,9 @@
 import { parseArgs } from "node:util";
 import { createApp } from "./app.ts";
 import { loadInstance } from "./instance/loader.ts";
-import { stderrLog } from "./log.ts";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { fileLog } from "./log.ts";
 import { runDaemon } from "./run.ts";
 
 const USAGE = "usage: node packages/daemon/src/main.ts --instance <name>";
@@ -15,7 +17,11 @@ async function main(): Promise<number> {
   // State and logs hold private data; keep new files owner-only.
   process.umask(0o077);
 
-  const log = stderrLog(values.instance);
+  // macOS keeps logs in ~/Library/Logs; elsewhere in the XDG state directory.
+  const logDir =
+    process.env["DSPTCHR_LOG_DIR"] ??
+    (process.platform === "darwin" ? join(homedir(), "Library", "Logs", "dsptchr") : join(homedir(), ".local", "state", "dsptchr"));
+  const log = fileLog(join(logDir, `${values.instance}.log`), values.instance, { maxBytes: 5 * 1024 * 1024, keep: 3 });
   const instance = await loadInstance(values.instance);
   const app = await createApp(instance, {
     onHeartbeatError: (error) => log.error(`heartbeat failed: ${error}`),
