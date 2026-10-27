@@ -2,6 +2,7 @@ import type { MailReading } from "@dsptchr/agents";
 import type { MailMessage, MailSummary } from "@dsptchr/watchers";
 import { describe, expect, it } from "vitest";
 import { createMailMonitor, MAIL_SOURCE } from "../src/mail.ts";
+import { parsePolicy, type Policy } from "@dsptchr/gate";
 import { harness, T0, TZ } from "./support/harness.ts";
 
 const summary = (id: string, minutesAgo: number, fromAddress = "a@example.com", subject = `Subject ${id}`): MailSummary => ({
@@ -12,8 +13,8 @@ const summary = (id: string, minutesAgo: number, fromAddress = "a@example.com", 
   time: T0 - minutesAgo * 60_000,
 });
 
-function setup(options: { readings?: Record<string, MailReading>; budgetOk?: boolean; todoAddress?: string } = {}) {
-  const h = harness();
+function setup(options: { readings?: Record<string, MailReading>; budgetOk?: boolean; todoAddress?: string; policy?: Policy } = {}) {
+  const h = harness(options.policy);
   const lists: { mails: MailSummary[]; complete: boolean }[] = [];
   const bodies = new Map<string, MailMessage>();
   const read: string[] = [];
@@ -137,13 +138,15 @@ describe("mail cursor", () => {
     expect(h.store.observations.listOpen(MAIL_SOURCE)).toHaveLength(1);
   });
 
-  it("keeps the cursor when the listing was incomplete", async () => {
+  it("moves on after an incomplete listing and tells the operator once", async () => {
     const h = setup();
     await h.run([]);
-    const since = h.store.cursors.get("mail:since");
     await h.run([h.mail(summary("m1", -1))], false);
-    expect(h.store.cursors.get("mail:since")).toBe(since);
+    await h.run([h.mail(summary("m2", -2))], false);
+    expect(h.sent.filter((m) => m.text.includes("older mail"))).toHaveLength(1);
+    expect(Number(h.store.cursors.get("mail:since"))).toBeGreaterThan(T0);
   });
+
 });
 
 describe("todo mail", () => {
@@ -183,6 +186,20 @@ describe("todo mail", () => {
     expect(h.store.todos.listActive()).toEqual([]);
     await h.run([m]);
     expect(h.store.todos.listActive()).toHaveLength(1);
+  });
+
+  it("retries a rate-limited todo creation with a fresh attempt once the limit resets", async () => {
+    const policy = parsePolicy(
+      "actions:\n  message.send:\n    level: auto\n  todo.create:\n    level: auto\n    rate_limit: { max: 1, per_minutes: 10 }\n",
+    );
+    const h = setup({ todoAddress: TODO, policy });
+    await h.run([]);
+    await h.dispatcher.dispatch({ type: "todo.create", payload: { text: "other" }, idempotencyKey: "fill", actor: "operator" });
+    const m = h.mail(summary("m1", -1, "me@example.com", "Buy milk"), [TODO]);
+    await h.run([m]);
+    expect(h.store.todos.listActive().map((t) => t.text)).toEqual(["other"]);
+    await h.run([m]);
+    expect(h.store.todos.listActive().map((t) => t.text)).toEqual(["other", "Buy milk"]);
   });
 
   it("marks mail-derived todos so the model sees no mail text", async () => {

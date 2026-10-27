@@ -56,12 +56,15 @@ export function createMailMonitor(deps: MailMonitorDeps) {
     const input = splitTodoInput(message.subject);
     const text = input.text === "" ? "Todo from mail" : input.text.slice(0, 500);
     const dueAt = input.due === undefined ? undefined : parseDue(input.due, now(), timeZone);
+    // A denial (e.g. rate limit) is final for its key, so each retry after a denial gets a new attempt.
+    const attempt = cursors.number(`attempt:${message.id}`) ?? 0;
     const created = await dispatcher.dispatch({
       type: "todo.create",
       payload: dueAt === undefined ? { text } : { text, dueAt },
-      idempotencyKey: `mail:${message.id}:todo`,
+      idempotencyKey: `mail:${message.id}:todo:${attempt}`,
       actor: ACTOR,
     });
+    if (created.state === "denied") cursors.set(`attempt:${message.id}`, attempt + 1);
     if (created.state !== "executed") return false;
     const todoId = (created.result as { todoId?: unknown }).todoId;
     if (typeof todoId === "string") cursors.set(`todo:${todoId}`, "1");
@@ -124,7 +127,19 @@ export function createMailMonitor(deps: MailMonitorDeps) {
       }
       const lines: AlertLine[] = [];
       let latest = since;
-      let allHandled = listing.complete;
+      // A listing cut short by the page limit means a large backlog. Waiting would refetch the same
+      // newest pages forever, so the run continues and the operator hears once that older mail was skipped.
+      let allHandled = true;
+      if (!listing.complete && cursors.get("backlog_noted") !== "1") {
+        const notice = await dispatcher.dispatch({
+          type: "message.send",
+          payload: { text: "Mail backlog too large to read at once; some older mail was skipped. Please check your inbox." },
+          idempotencyKey: `${SOURCE}:backlog:${now()}`,
+          actor: ACTOR,
+        });
+        if (notice.state === "executed") cursors.set("backlog_noted", "1");
+      }
+      if (listing.complete) cursors.set("backlog_noted", "0");
       for (const mail of listing.mails) {
         if (store.observations.get(SOURCE, mail.id) !== undefined) {
           latest = Math.max(latest, mail.time);

@@ -180,10 +180,11 @@ export function createOrchestrator(deps: OrchestratorDeps) {
         const payload = event_ === "snooze" ? { todoId: todo_id, event: event_, dueAt } : { todoId: todo_id, event: event_ };
         const action = await dispatch(event, "todo.update", payload);
         if (action.state !== "executed") return `Not allowed right now (${action.state}).`;
+        const shown = deps.isMailTodo?.(todo.id) === true ? "(todo from mail)" : todo.text;
         const summary =
           event_ === "snooze" && dueAt !== undefined
-            ? `Snoozed "${todo.text}" until ${formatDue(dueAt, timeZone)}.`
-            : `${event_ === "complete" ? "Completed" : "Dropped"} "${todo.text}".`;
+            ? `Snoozed "${shown}" until ${formatDue(dueAt, timeZone)}.`
+            : `${event_ === "complete" ? "Completed" : "Dropped"} "${shown}".`;
         store.orchestratorEvents.addWrite(event.id, summary);
         return summary;
       },

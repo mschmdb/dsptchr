@@ -21,7 +21,18 @@ export interface ICloudOptions {
 
 const CALDAV = "https://caldav.icloud.com/";
 const CARDDAV = "https://contacts.icloud.com/";
-const MAX_OCCURRENCES = 1000;
+// Steps through a series from DTSTART; enough for a daily series running about 50 years.
+const MAX_STEPS = 20_000;
+const ICLOUD_HOST = /^(p\d+-)?(caldav|contacts)\.icloud\.com$/;
+
+// Credentials only ever go to iCloud's DAV hosts over HTTPS, whatever a response points to.
+function checkedUrl(url: string): string {
+  const parsed = new URL(url);
+  if (parsed.protocol !== "https:" || !ICLOUD_HOST.test(parsed.hostname) || parsed.username !== "" || parsed.port !== "") {
+    throw new WatcherError("icloud: refusing a URL outside iCloud");
+  }
+  return parsed.toString();
+}
 
 const utc = (ms: number): string => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 
@@ -36,8 +47,10 @@ export function createICloudSource(options: ICloudOptions) {
   async function dav(method: "PROPFIND" | "REPORT", url: string, depth: "0" | "1", body: string): Promise<Document> {
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await fetch(checkedUrl(url), {
         method,
+        // A redirect could turn PROPFIND or REPORT into GET or point elsewhere; treat it as an error.
+        redirect: "manual",
         headers: {
           authorization: `Basic ${Buffer.from(`${options.username}:${options.password.reveal()}`).toString("base64")}`,
           depth,
@@ -46,7 +59,8 @@ export function createICloudSource(options: ICloudOptions) {
         body,
         signal: AbortSignal.timeout(30_000),
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof WatcherError) throw error;
       throw new WatcherError("icloud: request failed");
     }
     if (response.status !== 207 && response.status !== 200) {
@@ -65,10 +79,10 @@ export function createICloudSource(options: ICloudOptions) {
   async function home(base: string, homeSet: string, body: string): Promise<string> {
     const principal = hrefIn(await dav("PROPFIND", base, "0", PRINCIPAL_BODY), "current-user-principal");
     if (principal === undefined) throw new WatcherError("icloud: no principal");
-    const principalUrl = new URL(principal, base).toString();
+    const principalUrl = checkedUrl(new URL(principal, base).toString());
     const href = hrefIn(await dav("PROPFIND", principalUrl, "0", body), homeSet);
     if (href === undefined) throw new WatcherError("icloud: no home set");
-    return new URL(href, principalUrl).toString();
+    return checkedUrl(new URL(href, principalUrl).toString());
   }
 
   async function calendars(): Promise<{ name: string; url: string }[]> {
@@ -87,57 +101,71 @@ export function createICloudSource(options: ICloudOptions) {
       .filter((r) => first(r, "calendar") !== undefined)
       .map((r) => ({
         name: (first(r, "displayname")?.textContent ?? "").trim(),
-        url: new URL((first(r, "href")?.textContent ?? "").trim(), calendarHome).toString(),
+        url: checkedUrl(new URL((first(r, "href")?.textContent ?? "").trim(), calendarHome).toString()),
       }));
   }
 
   function toMillis(time: ICAL.Time): number {
     if (time.isDate || time.zone === ICAL.Timezone.localTimezone) {
       // Dates and floating times mean wall-clock time in the operator's zone.
-      return wallClockToUtc(
+      const minuteStart = wallClockToUtc(
         { year: time.year, month: time.month, day: time.day, hour: time.isDate ? 0 : time.hour, minute: time.isDate ? 0 : time.minute },
         options.timeZone,
       );
+      return minuteStart + (time.isDate ? 0 : time.second * 1000);
     }
     return time.toUnixTime() * 1000;
   }
 
-  function eventsFrom(data: string, range: { start: number; end: number }): CalendarEvent[] {
+  const organizerOf = (component: ICAL.Component): string =>
+    String(component.getFirstPropertyValue("organizer") ?? "").replace(/^mailto:/i, "");
+
+  // calendarId namespaces keys, so equal UIDs in two calendars never collide.
+  function eventsFrom(data: string, calendarId: string, range: { start: number; end: number }): CalendarEvent[] {
     const calendar = new ICAL.Component(ICAL.parse(data));
     for (const zone of calendar.getAllSubcomponents("vtimezone")) {
       ICAL.TimezoneService.register(zone);
     }
     const vevents = calendar.getAllSubcomponents("vevent").map((v) => new ICAL.Event(v));
-    const exceptions = vevents.filter((e) => e.isRecurrenceException());
     const out: CalendarEvent[] = [];
+    const push = (start: ICAL.Time, end: ICAL.Time, component: ICAL.Component, fallbackOrganizer: string, key: string): void => {
+      const startMs = toMillis(start);
+      const endMs = toMillis(end);
+      if (startMs >= range.end || endMs <= range.start) return;
+      const organizer = organizerOf(component);
+      out.push({
+        key: `icloud:${calendarId}:${key}`,
+        title: String(component.getFirstPropertyValue("summary") ?? ""),
+        start: startMs,
+        end: endMs,
+        allDay: start.isDate,
+        // An exception without its own organizer keeps the series' organizer.
+        organizer: organizer === "" ? fallbackOrganizer : organizer,
+        cancelled: String(component.getFirstPropertyValue("status") ?? "").toUpperCase() === "CANCELLED",
+      });
+    };
 
-    for (const event of vevents.filter((e) => !e.isRecurrenceException())) {
-      exceptions.filter((x) => x.uid === event.uid).forEach((x) => event.relateException(x));
-      const organizer = String(event.component.getFirstPropertyValue("organizer") ?? "").replace(/^mailto:/i, "");
-      const push = (start: ICAL.Time, end: ICAL.Time, item: ICAL.Event, key: string): void => {
-        const startMs = toMillis(start);
-        const endMs = toMillis(end);
-        if (startMs >= range.end || endMs <= range.start) return;
-        out.push({
-          key: `icloud:${key}`,
-          title: item.summary ?? "",
-          start: startMs,
-          end: endMs,
-          allDay: start.isDate,
-          organizer,
-          cancelled: String(item.component.getFirstPropertyValue("status") ?? "").toUpperCase() === "CANCELLED",
-        });
-      };
+    for (const master of vevents.filter((e) => !e.isRecurrenceException())) {
+      const exceptions = vevents.filter((x) => x.isRecurrenceException() && x.uid === master.uid);
+      const exceptionIds = new Set(exceptions.map((x) => toMillis(x.recurrenceId)));
+      const masterOrganizer = organizerOf(master.component);
 
-      if (!event.isRecurring()) {
-        push(event.startDate, event.endDate, event, event.uid);
+      // Exceptions count by their own (possibly moved) dates.
+      for (const exception of exceptions) {
+        push(exception.startDate, exception.endDate, exception.component, masterOrganizer, `${master.uid}@${utc(toMillis(exception.recurrenceId))}`);
+      }
+      if (!master.isRecurring()) {
+        push(master.startDate, master.endDate, master.component, "", master.uid);
         continue;
       }
-      const iterator = event.iterator();
-      for (let i = 0, next = iterator.next(); next !== undefined && next !== null && i < MAX_OCCURRENCES; i++, next = iterator.next()) {
-        if (toMillis(next) >= range.end) break;
-        const details = event.getOccurrenceDetails(next);
-        push(details.startDate, details.endDate, details.item, `${event.uid}@${utc(toMillis(details.recurrenceId))}`);
+      const iterator = master.iterator();
+      for (let i = 0, next = iterator.next(); next !== undefined && next !== null && i < MAX_STEPS; i++, next = iterator.next()) {
+        const occurrence = toMillis(next);
+        if (occurrence >= range.end) break;
+        if (exceptionIds.has(occurrence)) continue;
+        const end = next.clone();
+        end.addDuration(master.duration);
+        push(next, end, master.component, "", `${master.uid}@${utc(occurrence)}`);
       }
     }
     return out;
@@ -161,9 +189,10 @@ export function createICloudSource(options: ICloudOptions) {
             `<c:time-range start="${utc(range.start)}" end="${utc(range.end)}"/>` +
             `</c:comp-filter></c:comp-filter></c:filter></c:calendar-query>`,
         );
+        const calendarId = new URL(calendar.url).pathname.split("/").filter(Boolean).at(-1) ?? "calendar";
         for (const data of all(doc, "calendar-data")) {
           try {
-            events.push(...eventsFrom(data.textContent ?? "", range));
+            events.push(...eventsFrom(data.textContent ?? "", calendarId, range));
           } catch {
             // One malformed event must not hide the rest of the calendar.
           }

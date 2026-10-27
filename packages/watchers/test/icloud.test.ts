@@ -127,7 +127,7 @@ describe("iCloud CalDAV", () => {
     });
     expect(events).toEqual([
       {
-        key: "icloud:single-1",
+        key: "icloud:abc:single-1",
         title: "Dentist",
         start: Date.parse("2026-10-28T08:00:00Z"),
         end: Date.parse("2026-10-28T09:00:00Z"),
@@ -136,7 +136,7 @@ describe("iCloud CalDAV", () => {
         cancelled: false,
       },
       {
-        key: "icloud:allday-1",
+        key: "icloud:abc:allday-1",
         title: "Holiday",
         start: Date.parse("2026-10-28T23:00:00Z"),
         end: Date.parse("2026-10-29T23:00:00Z"),
@@ -145,7 +145,7 @@ describe("iCloud CalDAV", () => {
         cancelled: false,
       },
       {
-        key: "icloud:weekly-1@20261029T170000Z",
+        key: "icloud:abc:weekly-1@20261029T170000Z",
         title: "Choir",
         start: Date.parse("2026-10-29T17:00:00Z"),
         end: Date.parse("2026-10-29T18:00:00Z"),
@@ -189,5 +189,98 @@ describe("iCloud CardDAV birthdays", () => {
       { name: "Anna Example", month: 10, day: 28, year: 1990 },
       { name: "Ben Example", month: 10, day: 27, year: undefined },
     ]);
+  });
+});
+
+function serverWith(extraEvents: string[], principalHref = "/123/principal/") {
+  return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const url = String(input);
+    const body = String(init?.body ?? "");
+    let xml = "";
+    if (url === "https://caldav.icloud.com/" && body.includes("current-user-principal")) {
+      xml = multistatus([`<response><href>/</href><propstat><prop><current-user-principal><href>${principalHref}</href></current-user-principal></prop></propstat></response>`]);
+    } else if (url === "https://caldav.icloud.com/123/principal/") {
+      xml = multistatus([`<response><href>/</href><propstat><prop><C:calendar-home-set><href>https://p01-caldav.icloud.com/123/calendars/</href></C:calendar-home-set></prop></propstat></response>`]);
+    } else if (url === "https://p01-caldav.icloud.com/123/calendars/" && init?.method === "PROPFIND") {
+      xml = multistatus([`<response><href>/123/calendars/abc/</href><propstat><prop><displayname>Personal</displayname><resourcetype><collection/><C:calendar/></resourcetype></prop></propstat></response>`]);
+    } else if (url === "https://p01-caldav.icloud.com/123/calendars/abc/") {
+      xml = multistatus(extraEvents.map((d, i) => `<response><href>/e/${i}.ics</href><propstat><prop><C:calendar-data>${escape(d)}</C:calendar-data></prop></propstat></response>`));
+    } else {
+      return new Response("not found", { status: 404 });
+    }
+    return new Response(xml, { status: 207 });
+  };
+}
+
+function sourceWith(fetch: typeof globalThis.fetch) {
+  return createICloudSource({ username: USER, password: { reveal: () => PASSWORD }, timeZone: "Europe/Berlin", fetch });
+}
+
+describe("iCloud hardening", () => {
+  it("never sends credentials to a host outside iCloud or over plain HTTP", async () => {
+    const hosts: string[] = [];
+    const inner = serverWith([], "http://attacker.example.com/collect");
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      hosts.push(new URL(String(input)).host);
+      return inner(input, init);
+    }) as typeof globalThis.fetch;
+    await expect(sourceWith(fetch).calendars()).rejects.toThrow(WatcherError);
+    expect(hosts).not.toContain("attacker.example.com");
+  });
+
+  it("does not follow redirects", async () => {
+    const inits: RequestInit[] = [];
+    const fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      inits.push(init ?? {});
+      return new Response("", { status: 302, headers: { location: "https://caldav.icloud.com/x" } });
+    }) as typeof globalThis.fetch;
+    await expect(sourceWith(fetch).calendars()).rejects.toThrow(/HTTP 302/);
+    expect(inits.every((i) => i.redirect === "manual")).toBe(true);
+  });
+
+  it("expands long-running series inside the window", async () => {
+    const daily = ics(["BEGIN:VEVENT", "UID:daily", "DTSTART:20200101T080000Z", "DTEND:20200101T083000Z", "RRULE:FREQ=DAILY", "SUMMARY:Standup", "END:VEVENT"].join("\r\n"));
+    const events = await sourceWith(serverWith([daily]) as typeof globalThis.fetch).events(["Personal"], {
+      start: Date.parse("2026-10-27T00:00:00Z"),
+      end: Date.parse("2026-10-29T00:00:00Z"),
+    });
+    expect(events.map((e) => new Date(e.start).toISOString())).toEqual(["2026-10-27T08:00:00.000Z", "2026-10-28T08:00:00.000Z"]);
+  });
+
+  it("includes exceptions moved into the window and drops their original slot", async () => {
+    const moved = ics(
+      [
+        "BEGIN:VEVENT",
+        "UID:w",
+        "DTSTART:20261001T080000Z",
+        "DTEND:20261001T090000Z",
+        "RRULE:FREQ=WEEKLY;COUNT=10",
+        "SUMMARY:Weekly",
+        "END:VEVENT",
+        "BEGIN:VEVENT",
+        "UID:w",
+        "RECURRENCE-ID:20261105T080000Z",
+        "DTSTART:20261028T080000Z",
+        "DTEND:20261028T090000Z",
+        "SUMMARY:Weekly (moved)",
+        "ORGANIZER:mailto:other@example.com",
+        "END:VEVENT",
+      ].join("\r\n"),
+    );
+    const source = sourceWith(serverWith([moved]) as typeof globalThis.fetch);
+    const october = await source.events(["Personal"], { start: Date.parse("2026-10-27T00:00:00Z"), end: Date.parse("2026-10-29T00:00:00Z") });
+    expect(october.map((e) => [e.title, e.organizer])).toEqual([["Weekly (moved)", "other@example.com"]]);
+    const november = await source.events(["Personal"], { start: Date.parse("2026-11-04T00:00:00Z"), end: Date.parse("2026-11-06T00:00:00Z") });
+    expect(november).toEqual([]);
+  });
+
+  it("keeps seconds of floating times", async () => {
+    const floating = ics(["BEGIN:VEVENT", "UID:f", "DTSTART:20261028T090045", "DTEND:20261028T090145", "SUMMARY:Short", "END:VEVENT"].join("\r\n"));
+    const events = await sourceWith(serverWith([floating]) as typeof globalThis.fetch).events(["Personal"], {
+      start: Date.parse("2026-10-27T00:00:00Z"),
+      end: Date.parse("2026-10-30T00:00:00Z"),
+    });
+    expect(events[0]?.start).toBe(Date.parse("2026-10-28T08:00:45Z"));
+    expect(events[0]?.end).toBe(Date.parse("2026-10-28T08:01:45Z"));
   });
 });
