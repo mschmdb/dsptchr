@@ -94,4 +94,24 @@ export const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (source, external_id)
   );
   `,
+  `
+  CREATE TABLE conversation (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    at INTEGER NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('operator', 'assistant')),
+    text TEXT NOT NULL
+  );
+
+  CREATE TABLE runs (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    at INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cost_usd REAL NOT NULL,
+    outcome TEXT NOT NULL
+  );
+  CREATE INDEX runs_at ON runs(at);
+  `,
 ];
