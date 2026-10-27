@@ -173,6 +173,21 @@ describe("/calendar", () => {
   });
 });
 
+describe("/mail", () => {
+  it("lists recent mail from the mail monitor", async () => {
+    const h = harness();
+    const handler = createOperatorHandler({
+      store: h.store,
+      dispatcher: h.dispatcher,
+      timeZone: TZ,
+      now: () => h.clock.now,
+      sources: { mail: { lines: () => ["- [important] a@example.com: Invoice"] } },
+    });
+    await handler.handle(text("/mail"));
+    expect(h.sent[0]?.text).toBe("Mail (24 h)\n- [important] a@example.com: Invoice");
+  });
+});
+
 describe("/status", () => {
   it("summarizes the daemon state", async () => {
     const h = setup();

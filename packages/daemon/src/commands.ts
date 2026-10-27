@@ -2,6 +2,7 @@ import type { Button } from "@dsptchr/channels";
 import type { Store } from "@dsptchr/store";
 import { formatDue } from "./format.ts";
 import type { CalendarMonitor } from "./calendar.ts";
+import type { MailMonitor } from "./mail.ts";
 import { GITHUB_SOURCE } from "./github.ts";
 import { HEALTH_SOURCE } from "./health.ts";
 
@@ -16,7 +17,7 @@ const MAX_LINES = 25;
 const MAX_TEXT = 120;
 const COMMAND = /^\/([a-z]+)(?:@\w+)?$/i;
 
-export const HELP = "Commands: /todos, /calendar, /health, /github, /status. Any other text becomes a todo; add a due date after \" @ \".";
+export const HELP = "Commands: /todos, /calendar, /mail, /health, /github, /status. Any other text becomes a todo; add a due date after \" @ \".";
 
 // Fixed, deterministic read-only commands. Free questions need the orchestrator (model).
 export function parseCommand(text: string): string | undefined {
@@ -25,12 +26,18 @@ export function parseCommand(text: string): string | undefined {
 
 export interface CommandSources {
   calendar?: CalendarMonitor;
+  mail?: Pick<MailMonitor, "lines">;
 }
 
 export function runCommand(name: string, store: Store, timeZone: string, sources: CommandSources = {}): CommandReply {
   switch (name) {
     case "calendar":
       return { text: calendar(sources.calendar) };
+    case "mail": {
+      if (sources.mail === undefined) return { text: "No mail configured." };
+      const lines = sources.mail.lines();
+      return { text: lines.length === 0 ? "No mail in the last 24 h." : ["Mail (24 h)", ...lines].join("\n") };
+    }
     case "todos":
       return todos(store, timeZone);
     case "health":

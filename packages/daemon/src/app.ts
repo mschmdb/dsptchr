@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import type { CreateMessage } from "@dsptchr/agents";
+import { costUsd, readMail, type CreateMessage } from "@dsptchr/agents";
+import { wallClockOf, wallClockToUtc } from "@dsptchr/core";
 import { telegramChannel, type Channel } from "@dsptchr/channels";
 import { createExecutor } from "@dsptchr/executor";
 import { parsePolicy } from "@dsptchr/gate";
@@ -9,6 +10,7 @@ import { createBriefings } from "./briefings.ts";
 import { createDispatcher } from "./dispatch.ts";
 import { createProtonSource, fetchGithubLogin, fetchRepoSnapshot, runProton, runServerHealth } from "@dsptchr/watchers";
 import { CALENDAR_SOURCE, createCalendarMonitor } from "./calendar.ts";
+import { createMailMonitor, MAIL_SOURCE } from "./mail.ts";
 import { createGithubMonitor, GITHUB_SOURCE } from "./github.ts";
 import { createHealthMonitor, HEALTH_SOURCE } from "./health.ts";
 import { createHeartbeat } from "./heartbeat.ts";
@@ -38,6 +40,8 @@ export interface App {
 
 // Handled operator input stays in the inbox this long, then only its ID remains.
 const INBOX_RETENTION_MS = 7 * 86_400_000;
+// Reader role: tool-less classification of untrusted mail (AR-2).
+const READER_MODEL = "claude-haiku-5-5";
 // Chat memory the orchestrator sees is 6 h; a day is kept for debugging, then deleted.
 const CONVERSATION_RETENTION_MS = 86_400_000;
 
@@ -109,21 +113,68 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
         });
 
   const orchestratorConfig = instance.config.orchestrator;
-  const orchestrator =
+  const createMessage =
     orchestratorConfig === undefined
+      ? undefined
+      : (options.createMessage ?? anthropicCreateMessage((await instance.secret(orchestratorConfig.apiKey)).reveal()));
+  const startOfToday = (): number =>
+    wallClockToUtc({ ...wallClockOf(now(), instance.config.timezone), hour: 0, minute: 0 }, instance.config.timezone);
+  const withinModelBudget = (): boolean =>
+    orchestratorConfig !== undefined && store.runs.costSince(startOfToday()) < orchestratorConfig.dailyBudgetUsd;
+
+  const mail =
+    protonConfig === undefined || proton === undefined
+      ? undefined
+      : createMailMonitor({
+          store,
+          dispatcher,
+          listMail: (window) => proton.newMail(window),
+          readMail: (id) => proton.readMail(id),
+          classify: async (message) => {
+            if (createMessage === undefined) throw new Error("no model configured");
+            const { reading, usage } = await readMail({
+              createMessage,
+              model: READER_MODEL,
+              mail: {
+                fromAddress: message.fromAddress,
+                subject: message.subject,
+                body: message.body,
+                receivedAt: new Date(message.time).toISOString(),
+              },
+            });
+            store.runs.record({
+              role: "reader",
+              model: READER_MODEL,
+              inputTokens: usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
+              outputTokens: usage.outputTokens,
+              costUsd: costUsd(READER_MODEL, usage),
+              outcome: reading.category,
+            });
+            return reading;
+          },
+          mayClassify: withinModelBudget,
+          ownAddresses: protonConfig.ownAddresses,
+          ...(protonConfig.todoAddress === undefined ? {} : { todoAddress: protonConfig.todoAddress }),
+          intervalMs: protonConfig.mailIntervalMinutes * 60_000,
+          now,
+          timeZone: instance.config.timezone,
+        });
+
+  const orchestrator =
+    orchestratorConfig === undefined || createMessage === undefined
       ? undefined
       : createOrchestrator({
           store,
           dispatcher,
           timeZone: instance.config.timezone,
           now,
-          createMessage:
-            options.createMessage ?? anthropicCreateMessage((await instance.secret(orchestratorConfig.apiKey)).reveal()),
+          createMessage,
           model: orchestratorConfig.model,
           effort: orchestratorConfig.effort,
           dailyBudgetUsd: orchestratorConfig.dailyBudgetUsd,
           role: instance.role,
           ...(calendar === undefined ? {} : { calendar }),
+          ...(mail === undefined ? {} : { mail }),
         });
   const operator = createOperatorHandler({
     store,
@@ -131,7 +182,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
     timeZone: instance.config.timezone,
     now,
     ...(orchestrator === undefined ? {} : { orchestrator }),
-    sources: calendar === undefined ? {} : { calendar },
+    sources: { ...(calendar === undefined ? {} : { calendar }), ...(mail === undefined ? {} : { mail }) },
   });
   const scheduler = createReminderScheduler({ store, dispatcher, now });
   const briefings = createBriefings({
@@ -144,6 +195,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
       const findings = store.observations.listOpen(HEALTH_SOURCE).length;
       return [
         ...(calendar?.today() ?? []),
+        ...(mail?.briefing() ?? []),
         ...(findings === 0 ? [] : [`Server health: ${findings} open ${findings === 1 ? "finding" : "findings"} (/health).`]),
         ...(github?.summary() ?? []),
       ];
@@ -231,6 +283,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
       startWatcher(HEALTH_SOURCE, health);
       startWatcher(GITHUB_SOURCE, github);
       startWatcher(CALENDAR_SOURCE, calendar);
+      startWatcher(MAIL_SOURCE, mail);
       const sent = (await scheduler.tick()) + (await briefings.tick());
       // Only a completed tick counts as alive; a throwing tick skips the beat.
       const beat = await heartbeat?.beat(store.flags.isPaused() ? "paused" : "ok");

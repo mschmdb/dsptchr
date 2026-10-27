@@ -20,6 +20,6 @@ proton:
   binary: /path/to/proton-5.1.0      # pinned proton-cli, outside PATH
   profile: dsptchr                   # session created with: proton account login --profile dsptchr
   own_addresses: [user@example.com]  # your own addresses; their events are "own"
-  # todo_address: user+todo@example.com
+  todo_address: user+todo@example.com    # mail from own_addresses to this address becomes a todo
   calendar_interval_minutes: 30
   mail_interval_minutes: 15

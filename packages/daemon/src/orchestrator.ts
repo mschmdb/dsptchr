@@ -27,6 +27,7 @@ export interface OrchestratorDeps {
   dailyBudgetUsd: number;
   role: string;
   calendar?: { forModel(): unknown[] };
+  mail?: { forModel(): unknown };
 }
 
 export type OrchestratorOutcome = "handled" | "paused" | "budget_exhausted" | "unavailable";
@@ -100,6 +101,9 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           return JSON.stringify(
             deps.calendar === undefined ? { calendar: "not configured" } : { events: deps.calendar.forModel() },
           );
+        }
+        if (scope === "mail") {
+          return JSON.stringify(deps.mail === undefined ? { mail: "not configured" } : deps.mail.forModel());
         }
         if (scope === "health") {
           // Structured fields only: finding text comes from the servers and stays out of model context.
