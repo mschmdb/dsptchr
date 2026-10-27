@@ -2,6 +2,7 @@ import type { InboundEvent } from "@dsptchr/channels";
 import { parseDue, splitTodoInput } from "@dsptchr/core";
 import type { Store, StoredAction } from "@dsptchr/store";
 import type { Dispatcher } from "./dispatch.ts";
+import { parseCommand, runCommand } from "./commands.ts";
 import { formatDue } from "./format.ts";
 
 export interface OperatorHandlerDeps {
@@ -13,7 +14,7 @@ export interface OperatorHandlerDeps {
 
 const STOP_WORDS = new Set(["stop", "stopp"]);
 const START_WORDS = new Set(["start", "resume", "weiter"]);
-const BUTTON = /^todo:(done|hour|tomorrow):([^:]+)$/;
+const BUTTON = /^todo:(done|drop|hour|tomorrow):([^:]+)$/;
 const ACTOR = "operator";
 const MAX_NOTE = 120;
 
@@ -59,6 +60,24 @@ export function createOperatorHandler({ store, dispatcher, timeZone, now }: Oper
     if (START_WORDS.has(word)) {
       if (store.flags.isPaused()) store.flags.setPaused(false, ACTOR);
       await reply(event, "Resumed.");
+      return;
+    }
+
+    const command = parseCommand(event.text);
+    if (command !== undefined || event.text.trim().startsWith("/")) {
+      const result = runCommand(command ?? "", store, timeZone);
+      ensureNotFailed(
+        await dispatcher.dispatch({
+          type: "message.send",
+          payload: {
+            text: result.text,
+            conversation: event.conversation,
+            ...(result.buttons === undefined ? {} : { buttons: result.buttons }),
+          },
+          idempotencyKey: `${event.id}:reply`,
+          actor: ACTOR,
+        }),
+      );
       return;
     }
 
@@ -120,8 +139,8 @@ export function createOperatorHandler({ store, dispatcher, timeZone, now }: Oper
     }
 
     const payload =
-      command === "done"
-        ? { todoId, event: "complete" }
+      command === "done" || command === "drop"
+        ? { todoId, event: command === "done" ? "complete" : "drop" }
         : { todoId, event: "snooze", dueAt: command === "hour" ? now() + 3_600_000 : (parseDue("morgen", now(), timeZone) ?? now()) };
     const action = ensureNotFailed(
       await dispatcher.dispatch({
@@ -134,7 +153,9 @@ export function createOperatorHandler({ store, dispatcher, timeZone, now }: Oper
     if (action.state !== "executed") return;
     await acknowledge(
       event,
-      payload.dueAt === undefined ? `Done: ${todo.text}` : `Snoozed until ${formatDue(payload.dueAt, timeZone)}`,
+      payload.dueAt === undefined
+        ? `${command === "drop" ? "Dropped" : "Done"}: ${todo.text}`
+        : `Snoozed until ${formatDue(payload.dueAt, timeZone)}`,
     );
   }
 

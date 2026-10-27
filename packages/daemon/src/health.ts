@@ -13,7 +13,8 @@ export interface HealthMonitorDeps {
   failureThreshold?: number;
 }
 
-const SOURCE = "server-health";
+export const HEALTH_SOURCE = "server-health";
+const SOURCE = HEALTH_SOURCE;
 const ACTOR = "watcher";
 const MAX_TEXT = 160;
 const MAX_KEY = 80;
