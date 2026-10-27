@@ -1,6 +1,8 @@
 {
-  "name": "dsptchr-workspace",
+  "name": "dsptchr",
   "private": true,
+  "description": "Self-hosted, proactive personal orchestrator: watches your sources, reports what matters, does routine work behind a deterministic gate.",
+  "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@10.33.4",
   "engines": {
@@ -10,7 +12,8 @@
     "prepare": "git config core.hooksPath .githooks",
     "test": "vitest run",
     "check": "tsc -p tsconfig.json --noEmit",
-    "test:injection": "DSPTCHR_LIVE=1 vitest run packages/daemon/test/injection"
+    "test:injection": "DSPTCHR_LIVE=1 vitest run packages/daemon/test/injection",
+    "leak-check": "node scripts/leak-guard/check.ts files"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
