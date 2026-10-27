@@ -36,6 +36,8 @@ const MAX_AHEAD_MS = 366 * 86_400_000;
 const HISTORY_TURNS = 12;
 const HISTORY_MAX_AGE_MS = 6 * 3_600_000;
 const CHECK_NAME = /^[a-z_]{1,24}$/;
+// Caps what one operator message can change, even with a misbehaving model.
+const MAX_WRITES_PER_MESSAGE = 10;
 
 type Counts = Record<"self" | "bot" | "other", number>;
 const emptyCounts = (): Counts => ({ self: 0, bot: 0, other: 0 });
@@ -71,6 +73,9 @@ export function createOrchestrator(deps: OrchestratorDeps) {
   }
 
   async function dispatch(event: InboundEvent, type: string, payload: unknown): Promise<StoredAction> {
+    if ((store.orchestratorEvents.get(event.id)?.writes.length ?? 0) >= MAX_WRITES_PER_MESSAGE) {
+      throw new ToolInputError(`limit of ${MAX_WRITES_PER_MESSAGE} changes per message reached`);
+    }
     const digest = createHash("sha256").update(JSON.stringify([type, payload])).digest("hex").slice(0, 16);
     const action = await dispatcher.dispatch({ type, payload, idempotencyKey: `${event.id}:orch:${digest}`, actor: ACTOR });
     if (action.state === "failed") throw new ActionFailedError(`action ${type} failed`);

@@ -9,7 +9,8 @@
   "scripts": {
     "prepare": "git config core.hooksPath .githooks",
     "test": "vitest run",
-    "check": "tsc -p tsconfig.json --noEmit"
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test:injection": "DSPTCHR_LIVE=1 vitest run packages/daemon/test/injection"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
