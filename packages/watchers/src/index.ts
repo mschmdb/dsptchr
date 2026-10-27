@@ -15,3 +15,4 @@ export {
   type GithubItem,
   type RepoSnapshot,
 } from "./github/github.ts";
+export { buildProtonArgs, runProton, PROTON_ENV, type ProtonCommand, type ProtonOptions, type ProtonRun } from "./proton/cli.ts";
