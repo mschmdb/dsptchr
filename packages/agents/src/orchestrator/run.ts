@@ -20,10 +20,14 @@ export interface OrchestratorRequest {
   input: string;
   tools: OrchestratorTools;
   maxIterations?: number;
+  // Called after every API response, so spend is recorded even if a later step fails.
+  onResponse?: (usage: Usage) => void;
+  // Checked before every API call; false stops the run (budget).
+  mayCall?: () => boolean;
 }
 
 export interface OrchestratorResult {
-  outcome: "ok" | "refusal" | "iteration_limit" | "max_tokens";
+  outcome: "ok" | "refusal" | "iteration_limit" | "max_tokens" | "budget_exhausted";
   reply: string | undefined;
   iterations: number;
   usage: Usage;
@@ -52,6 +56,9 @@ export async function runOrchestrator(request: OrchestratorRequest): Promise<Orc
   ];
 
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
+    if (request.mayCall !== undefined && !request.mayCall()) {
+      return { outcome: "budget_exhausted", reply: undefined, iterations: iteration - 1, usage, toolCalls };
+    }
     const response = await request.createMessage({
       model: request.model,
       max_tokens: 4000,
@@ -62,7 +69,9 @@ export async function runOrchestrator(request: OrchestratorRequest): Promise<Orc
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
     });
-    addUsage(usage, response.usage);
+    const responseUsage = toUsage(response.usage);
+    addUsage(usage, responseUsage);
+    request.onResponse?.(responseUsage);
 
     if (response.stop_reason === "refusal") {
       return { outcome: "refusal", reply: undefined, iterations: iteration, usage, toolCalls };
@@ -119,9 +128,18 @@ function toMessages(history: readonly HistoryTurn[]): Anthropic.Beta.BetaMessage
   return history.slice(start).map((t) => ({ role: t.role === "operator" ? "user" : "assistant", content: t.text }));
 }
 
-function addUsage(total: Usage, usage: Anthropic.Beta.BetaUsage): void {
-  total.inputTokens += usage.input_tokens;
-  total.outputTokens += usage.output_tokens;
-  total.cacheReadTokens += usage.cache_read_input_tokens ?? 0;
-  total.cacheWriteTokens += usage.cache_creation_input_tokens ?? 0;
+function toUsage(usage: Anthropic.Beta.BetaUsage): Usage {
+  return {
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+    cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
+  };
+}
+
+function addUsage(total: Usage, usage: Usage): void {
+  total.inputTokens += usage.inputTokens;
+  total.outputTokens += usage.outputTokens;
+  total.cacheReadTokens += usage.cacheReadTokens;
+  total.cacheWriteTokens += usage.cacheWriteTokens;
 }

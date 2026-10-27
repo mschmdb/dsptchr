@@ -49,6 +49,14 @@ describe("/todos", () => {
     expect(h.sent[0]?.text.split("\n")).toHaveLength(11);
   });
 
+  it("keeps the list within one Telegram message", async () => {
+    const h = setup();
+    for (let i = 0; i < 60; i++) h.store.todos.create({ text: `${"x".repeat(480)} ${i}`, actor: "operator" });
+    await h.handler.handle(text("/todos"));
+    expect(h.sent[0]?.text.length).toBeLessThanOrEqual(4096);
+    expect(h.sent[0]?.text).toMatch(/and \d+ more/);
+  });
+
   it("accepts the bot-suffixed form Telegram sends in groups", async () => {
     const h = setup();
     await h.handler.handle(text("/todos@some_bot"));
@@ -80,6 +88,21 @@ describe("/health", () => {
     await h.handler.handle(text("/health"));
 
     expect(h.sent[0]?.text).toBe("Server health (last check Tue 27.10. 11:00)\n- CRIT host-a: Disk 95% full");
+  });
+
+  it("keeps the health list within one Telegram message", async () => {
+    const h = setup();
+    h.store.cursors.set("server-health:last_success", String(T0));
+    for (let i = 0; i < 80; i++) {
+      h.store.observations.observe({
+        source: "server-health",
+        externalId: `host-a:c${i}`,
+        version: "warn",
+        data: { host: "host-a", text: "y".repeat(160) },
+      });
+    }
+    await h.handler.handle(text("/health"));
+    expect(h.sent[0]?.text.length).toBeLessThanOrEqual(4096);
   });
 
   it("reports all clear", async () => {

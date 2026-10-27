@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { actionRepo } from "./actions.ts";
 import { auditLog } from "./audit.ts";
 import { openDb } from "./db.ts";
-import { conversationRepo, runRepo } from "./conversation.ts";
+import { conversationRepo, orchestratorEventRepo, runRepo } from "./conversation.ts";
 import { inboxRepo } from "./inbox.ts";
 import { observationRepo } from "./observations.ts";
 import { cursorRepo, flagRepo } from "./kv.ts";
@@ -14,7 +14,7 @@ export type { Reminder, ReminderState, ReminderRepo } from "./reminders.ts";
 export type { StoredAction, ActionRepo } from "./actions.ts";
 export type { TodoRepo } from "./todos.ts";
 export type { InboxEntry, InboxRepo, InboxState } from "./inbox.ts";
-export type { RunRecord, Turn } from "./conversation.ts";
+export type { OrchestratorEvent, RunRecord, Turn } from "./conversation.ts";
 export type { Observation, ObservationRepo, ObserveResult } from "./observations.ts";
 
 export interface StoreOptions {
@@ -40,6 +40,7 @@ export function openStore(options: StoreOptions) {
     observations: observationRepo(db, audit, now),
     conversation: conversationRepo(db, now),
     runs: runRepo(db, audit, now),
+    orchestratorEvents: orchestratorEventRepo(db, now),
     transaction: <T>(fn: () => T): T => db.transaction(fn),
     // Test hook for asserting database-level guarantees. Not for application code.
     unsafeExec: (sql: string): void => db.exec(sql),

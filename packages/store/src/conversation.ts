@@ -66,3 +66,51 @@ export function runRepo(db: Db, audit: AuditLog, now: () => number) {
 function toTurn(row: Row): Turn {
   return { at: Number(row["at"]), role: row["role"] as Turn["role"], text: String(row["text"]) };
 }
+
+export interface OrchestratorEvent {
+  writes: string[];
+  reply: string | undefined;
+}
+
+// Per-event progress of the orchestrator, so a retried event neither repeats completed
+// writes nor asks the model again once a reply exists.
+export function orchestratorEventRepo(db: Db, now: () => number) {
+  const ensure = (eventId: string): void => {
+    db.run("INSERT INTO orchestrator_events (event_id, at) VALUES (:eventId, :at) ON CONFLICT(event_id) DO NOTHING", {
+      eventId,
+      at: now(),
+    });
+  };
+
+  return {
+    get(eventId: string): OrchestratorEvent | undefined {
+      const row = db.get("SELECT * FROM orchestrator_events WHERE event_id = :eventId", { eventId });
+      if (row === undefined) return undefined;
+      return {
+        writes: JSON.parse(String(row["writes_json"])) as string[],
+        reply: (row["reply"] as string | null) ?? undefined,
+      };
+    },
+
+    addWrite(eventId: string, summary: string): void {
+      db.transaction(() => {
+        ensure(eventId);
+        db.run(
+          "UPDATE orchestrator_events SET writes_json = json_insert(writes_json, '$[#]', :summary) WHERE event_id = :eventId",
+          { eventId, summary },
+        );
+      });
+    },
+
+    setReply(eventId: string, reply: string): void {
+      db.transaction(() => {
+        ensure(eventId);
+        db.run("UPDATE orchestrator_events SET reply = :reply WHERE event_id = :eventId", { eventId, reply });
+      });
+    },
+
+    purgeBefore(before: number): number {
+      return db.run("DELETE FROM orchestrator_events WHERE at < :before", { before }).changes;
+    },
+  };
+}

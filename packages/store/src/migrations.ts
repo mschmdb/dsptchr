@@ -114,4 +114,12 @@ export const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX runs_at ON runs(at);
   `,
+  `
+  CREATE TABLE orchestrator_events (
+    event_id TEXT PRIMARY KEY,
+    at INTEGER NOT NULL,
+    writes_json TEXT NOT NULL DEFAULT '[]',
+    reply TEXT
+  );
+  `,
 ];

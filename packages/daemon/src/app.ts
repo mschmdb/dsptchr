@@ -171,6 +171,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
     tick: async () => {
       store.inbox.purgeDone(now() - INBOX_RETENTION_MS);
       store.conversation.purgeBefore(now() - CONVERSATION_RETENTION_MS);
+      store.orchestratorEvents.purgeBefore(now() - CONVERSATION_RETENTION_MS);
       startHealth();
       const sent = (await scheduler.tick()) + (await briefings.tick());
       // Only a completed tick counts as alive; a throwing tick skips the beat.

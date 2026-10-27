@@ -196,6 +196,32 @@ describe("runOrchestrator", () => {
     expect(request?.output_config).toEqual({ effort: "low" });
   });
 
+  it("reports each response's usage as it arrives", async () => {
+    const seen: number[] = [];
+    const create = scripted([
+      message([toolUse("u1", "read_state", { scope: "todos" })], "tool_use", { input_tokens: 10, output_tokens: 1 }),
+      message([textBlock("ok")], "end_turn", { input_tokens: 20, output_tokens: 2 }),
+    ]);
+    await runOrchestrator({ ...base, createMessage: create, tools: tools(), onResponse: (u) => seen.push(u.inputTokens) });
+    expect(seen).toEqual([10, 20]);
+  });
+
+  it("checks the budget before every call and stops when it is used up", async () => {
+    let calls = 0;
+    const create = scripted([
+      message([toolUse("u1", "read_state", { scope: "todos" })], "tool_use"),
+      message([textBlock("never")], "end_turn"),
+    ]);
+    const result = await runOrchestrator({
+      ...base,
+      createMessage: create,
+      tools: tools(),
+      mayCall: () => ++calls <= 1,
+    });
+    expect(result).toMatchObject({ outcome: "budget_exhausted", reply: undefined, iterations: 1 });
+    expect(create.requests).toHaveLength(1);
+  });
+
   it("joins multiple text blocks of the final message", async () => {
     const create = scripted([message([textBlock("Part 1."), textBlock("Part 2.")], "end_turn")]);
     expect((await runOrchestrator({ ...base, createMessage: create, tools: tools() })).reply).toBe("Part 1.\nPart 2.");

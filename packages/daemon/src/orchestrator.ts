@@ -34,6 +34,7 @@ const ISO_WITH_OFFSET = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z
 const MAX_AHEAD_MS = 366 * 86_400_000;
 const HISTORY_TURNS = 12;
 const HISTORY_MAX_AGE_MS = 6 * 3_600_000;
+const CHECK_NAME = /^[a-z_]{1,24}$/;
 
 export class ActionFailedError extends Error {
   override name = "ActionFailedError";
@@ -55,6 +56,14 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     if (due <= now()) throw new ToolInputError("due_at is in the past");
     if (due - now() > MAX_AHEAD_MS) throw new ToolInputError("due_at is more than a year ahead");
     return due;
+  }
+
+  // Finding keys come from the servers (e.g. container names). The model gets only the
+  // rule suffix in a fixed format and whether it concerns a container, never the raw key.
+  function checkOf(externalId: string): { scope: "host" | "container"; check: string } {
+    const parts = externalId.split(":");
+    const last = parts.at(-1) ?? "";
+    return { scope: parts[1] === "ctr" ? "container" : "host", check: CHECK_NAME.test(last) ? last : "other" };
   }
 
   async function dispatch(event: InboundEvent, type: string, payload: unknown): Promise<StoredAction> {
@@ -80,16 +89,13 @@ export function createOrchestrator(deps: OrchestratorDeps) {
         if (scope === "health") {
           // Structured fields only: finding text comes from the servers and stays out of model context.
           return JSON.stringify({
-            findings: store.observations.listOpen(HEALTH_SOURCE).map((o) => {
-              const host = String((o.data as { host?: unknown }).host ?? "");
-              const check = o.externalId.startsWith(`${host}:`) ? o.externalId.slice(host.length + 1) : o.externalId;
-              return {
-                host: sanitizeUntrusted(host, 60),
-                severity: o.version,
-                check: sanitizeUntrusted(check, 60),
-                since: formatDue(o.firstSeenAt, timeZone),
-              };
-            }),
+            // Hosts passed the instance allowlist; everything else is reduced to a fixed vocabulary.
+            findings: store.observations.listOpen(HEALTH_SOURCE).map((o) => ({
+              host: sanitizeUntrusted(String((o.data as { host?: unknown }).host ?? ""), 60),
+              severity: o.version === "crit" ? "crit" : "warn",
+              ...checkOf(o.externalId),
+              since: formatDue(o.firstSeenAt, timeZone),
+            })),
           });
         }
         const last = store.cursors.get(`${HEALTH_SOURCE}:last_success`);
@@ -106,7 +112,12 @@ export function createOrchestrator(deps: OrchestratorDeps) {
         const action = await dispatch(event, "todo.create", dueAt === undefined ? { text } : { text, dueAt });
         if (action.state !== "executed") return `Not allowed right now (${action.state}).`;
         const id = (action.result as { todoId?: string }).todoId ?? "?";
-        return dueAt === undefined ? `Created todo ${id} without due time.` : `Created todo ${id} due ${formatDue(dueAt, timeZone)}.`;
+        const summary =
+          dueAt === undefined
+            ? `Created todo ${id} "${text}" without due time.`
+            : `Created todo ${id} "${text}" due ${formatDue(dueAt, timeZone)}.`;
+        store.orchestratorEvents.addWrite(event.id, summary);
+        return summary;
       },
 
       async update_todo({ todo_id, action: change, due_at }) {
@@ -120,19 +131,51 @@ export function createOrchestrator(deps: OrchestratorDeps) {
         const payload = event_ === "snooze" ? { todoId: todo_id, event: event_, dueAt } : { todoId: todo_id, event: event_ };
         const action = await dispatch(event, "todo.update", payload);
         if (action.state !== "executed") return `Not allowed right now (${action.state}).`;
-        return event_ === "snooze" && dueAt !== undefined
-          ? `Snoozed "${todo.text}" until ${formatDue(dueAt, timeZone)}.`
-          : `${event_ === "complete" ? "Completed" : "Dropped"} "${todo.text}".`;
+        const summary =
+          event_ === "snooze" && dueAt !== undefined
+            ? `Snoozed "${todo.text}" until ${formatDue(dueAt, timeZone)}.`
+            : `${event_ === "complete" ? "Completed" : "Dropped"} "${todo.text}".`;
+        store.orchestratorEvents.addWrite(event.id, summary);
+        return summary;
       },
     };
+  }
+
+  const withinBudget = (): boolean => store.runs.costSince(startOfToday()) < deps.dailyBudgetUsd;
+
+  async function sendReply(event: InboundEvent, reply: string): Promise<void> {
+    store.orchestratorEvents.setReply(event.id, reply);
+    const sent = await dispatcher.dispatch({
+      type: "message.send",
+      payload: { text: reply.slice(0, 4000), conversation: event.conversation },
+      idempotencyKey: `${event.id}:reply`,
+      actor: ACTOR,
+    });
+    if (sent.state === "failed") throw new ActionFailedError("reply failed");
+  }
+
+  function doneSoFar(event: InboundEvent, reason: string): string | undefined {
+    const writes = store.orchestratorEvents.get(event.id)?.writes ?? [];
+    return writes.length === 0 ? undefined : [`${reason} Done so far:`, ...writes.map((w) => `- ${w}`)].join("\n");
   }
 
   return {
     async handle(event: Extract<InboundEvent, { kind: "text" }>): Promise<OrchestratorOutcome> {
       if (store.flags.isPaused()) return "paused";
-      if (store.runs.costSince(startOfToday()) >= deps.dailyBudgetUsd) return "budget_exhausted";
+
+      // A retried event whose run already finished only needs its reply (again).
+      const previous = store.orchestratorEvents.get(event.id);
+      if (previous?.reply !== undefined) {
+        await sendReply(event, previous.reply);
+        return "handled";
+      }
+      if (!withinBudget()) return "budget_exhausted";
 
       const history = store.conversation.recent(HISTORY_TURNS, { since: now() - HISTORY_MAX_AGE_MS });
+      const alreadyDone =
+        previous === undefined || previous.writes.length === 0
+          ? ""
+          : `\n\nAlready done for this message:\n${previous.writes.map((w) => `- ${w}`).join("\n")}\nDo not repeat these.`;
       let result;
       try {
         result = await runOrchestrator({
@@ -141,38 +184,38 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           effort: deps.effort,
           role: deps.role,
           history,
-          context: `Current time: ${formatNow(now(), timeZone)}`,
+          context: `Current time: ${formatNow(now(), timeZone)}${alreadyDone}`,
           input: event.text,
           tools: tools(event),
+          mayCall: withinBudget,
+          onResponse: (usage) =>
+            store.runs.record({
+              role: ACTOR,
+              model: deps.model,
+              inputTokens: usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
+              outputTokens: usage.outputTokens,
+              costUsd: costUsd(deps.model, usage),
+              outcome: "response",
+            }),
         });
       } catch (error) {
-        if (isModelApiError(error)) {
-          store.runs.record({ role: ACTOR, model: deps.model, inputTokens: 0, outputTokens: 0, costUsd: 0, outcome: "api_error" });
-          return "unavailable";
-        }
-        throw error;
+        if (!isModelApiError(error)) throw error;
+        // After a completed write a fallback todo would duplicate work; report what happened instead.
+        const partial = doneSoFar(event, "The model failed mid-answer.");
+        if (partial === undefined) return "unavailable";
+        await sendReply(event, partial);
+        return "handled";
       }
-      store.runs.record({
-        role: ACTOR,
-        model: deps.model,
-        inputTokens: result.usage.inputTokens + result.usage.cacheReadTokens + result.usage.cacheWriteTokens,
-        outputTokens: result.usage.outputTokens,
-        costUsd: costUsd(deps.model, result.usage),
-        outcome: result.outcome,
-      });
 
       const reply =
         result.reply ??
-        (result.outcome === "refusal"
-          ? "Sorry, I can't help with that. Try /todos, /health or /status."
-          : "Sorry, I couldn't finish that. Please try again or rephrase.");
-      const sent = await dispatcher.dispatch({
-        type: "message.send",
-        payload: { text: reply.slice(0, 4000), conversation: event.conversation },
-        idempotencyKey: `${event.id}:reply`,
-        actor: ACTOR,
-      });
-      if (sent.state === "failed") throw new ActionFailedError("reply failed");
+        (result.outcome === "budget_exhausted"
+          ? (doneSoFar(event, "Daily model budget reached mid-answer.") ??
+            "Daily model budget reached mid-answer. Try /todos, /health or /status.")
+          : result.outcome === "refusal"
+            ? "Sorry, I can't help with that. Try /todos, /health or /status."
+            : (doneSoFar(event, "I couldn't finish that.") ?? "Sorry, I couldn't finish that. Please try again or rephrase."));
+      await sendReply(event, reply);
       store.conversation.append({ role: "operator", text: event.text });
       store.conversation.append({ role: "assistant", text: reply });
       return "handled";
