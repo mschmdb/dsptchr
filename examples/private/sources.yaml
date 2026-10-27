@@ -23,3 +23,9 @@ proton:
   todo_address: user+todo@example.com    # mail from own_addresses to this address becomes a todo
   calendar_interval_minutes: 30
   mail_interval_minutes: 15
+icloud:
+  username: user@example.com         # Apple ID
+  password: icloud_caldav            # secrets.yaml entry with an app-specific password
+  calendars: [Personal]              # CalDAV calendar display names to read
+  birthdays: true                    # birthdays from contacts (CardDAV)
+  interval_minutes: 30

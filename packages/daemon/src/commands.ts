@@ -2,6 +2,7 @@ import type { Button } from "@dsptchr/channels";
 import type { Store } from "@dsptchr/store";
 import { formatDue } from "./format.ts";
 import type { CalendarMonitor } from "./calendar.ts";
+import type { BirthdayMonitor } from "./birthdays.ts";
 import type { MailMonitor } from "./mail.ts";
 import { GITHUB_SOURCE } from "./github.ts";
 import { HEALTH_SOURCE } from "./health.ts";
@@ -27,12 +28,13 @@ export function parseCommand(text: string): string | undefined {
 export interface CommandSources {
   calendar?: CalendarMonitor;
   mail?: Pick<MailMonitor, "lines">;
+  birthdays?: Pick<BirthdayMonitor, "briefing">;
 }
 
 export function runCommand(name: string, store: Store, timeZone: string, sources: CommandSources = {}): CommandReply {
   switch (name) {
     case "calendar":
-      return { text: calendar(sources.calendar) };
+      return { text: [calendar(sources.calendar), ...(sources.birthdays?.briefing() ?? [])].join("\n") };
     case "mail": {
       if (sources.mail === undefined) return { text: "No mail configured." };
       const lines = sources.mail.lines();

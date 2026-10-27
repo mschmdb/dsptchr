@@ -1,14 +1,16 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { costUsd, readMail, type CreateMessage } from "@dsptchr/agents";
-import { wallClockOf, wallClockToUtc } from "@dsptchr/core";
+import { addDays, wallClockOf, wallClockToUtc } from "@dsptchr/core";
+import type { CalendarEvent } from "@dsptchr/watchers";
 import { telegramChannel, type Channel } from "@dsptchr/channels";
 import { createExecutor } from "@dsptchr/executor";
 import { parsePolicy } from "@dsptchr/gate";
 import { openStore, type Store } from "@dsptchr/store";
 import { createBriefings } from "./briefings.ts";
 import { createDispatcher } from "./dispatch.ts";
-import { createProtonSource, fetchGithubLogin, fetchRepoSnapshot, runProton, runServerHealth } from "@dsptchr/watchers";
+import { createICloudSource, createProtonSource, fetchGithubLogin, fetchRepoSnapshot, runProton, runServerHealth } from "@dsptchr/watchers";
+import { BIRTHDAY_SOURCE, createBirthdayMonitor } from "./birthdays.ts";
 import { CALENDAR_SOURCE, createCalendarMonitor } from "./calendar.ts";
 import { createMailMonitor, MAIL_SOURCE } from "./mail.ts";
 import { createGithubMonitor, GITHUB_SOURCE } from "./github.ts";
@@ -100,14 +102,49 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
           call: (command) =>
             runProton(command, { binary: protonConfig.binary, profile: protonConfig.profile, home: homedir() }),
         });
+  const icloudConfig = instance.sources.icloud;
+  const icloud =
+    icloudConfig === undefined
+      ? undefined
+      : createICloudSource({
+          username: icloudConfig.username,
+          password: await instance.secret(icloudConfig.password),
+          timeZone: instance.config.timezone,
+          ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+        });
+
+  // Proton and iCloud events merge into one calendar view.
+  const dayStart = (date: string, offset: number): number => {
+    const [year = 0, month = 0, day = 0] = date.split("-").map(Number);
+    return wallClockToUtc(addDays({ year, month, day, hour: 0, minute: 0 }, offset), instance.config.timezone);
+  };
+  const calendarSources: ((range: { after: string; before: string }) => Promise<CalendarEvent[]>)[] = [
+    ...(proton === undefined ? [] : [(range: { after: string; before: string }) => proton.events(range)]),
+    ...(icloud === undefined || icloudConfig === undefined || icloudConfig.calendars.length === 0
+      ? []
+      : [
+          (range: { after: string; before: string }) =>
+            icloud.events(icloudConfig.calendars, { start: dayStart(range.after, 0), end: dayStart(range.before, 1) }),
+        ]),
+  ];
   const calendar =
-    protonConfig === undefined || proton === undefined
+    calendarSources.length === 0
       ? undefined
       : createCalendarMonitor({
           store,
-          fetchEvents: (range) => proton.events(range),
-          ownAddresses: protonConfig.ownAddresses,
-          intervalMs: protonConfig.calendarIntervalMinutes * 60_000,
+          fetchEvents: async (range) => (await Promise.all(calendarSources.map((fetchEvents) => fetchEvents(range)))).flat(),
+          ownAddresses: [...(protonConfig?.ownAddresses ?? []), ...(icloudConfig === undefined ? [] : [icloudConfig.username])],
+          intervalMs: Math.min(protonConfig?.calendarIntervalMinutes ?? 1440, icloudConfig?.intervalMinutes ?? 1440) * 60_000,
+          now,
+          timeZone: instance.config.timezone,
+        });
+  const birthdays =
+    icloud === undefined || icloudConfig?.birthdays !== true
+      ? undefined
+      : createBirthdayMonitor({
+          store,
+          fetchBirthdays: () => icloud.birthdays(),
+          intervalMs: 12 * 3_600_000,
           now,
           timeZone: instance.config.timezone,
         });
@@ -174,6 +211,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
           dailyBudgetUsd: orchestratorConfig.dailyBudgetUsd,
           role: instance.role,
           ...(calendar === undefined ? {} : { calendar }),
+          ...(birthdays === undefined ? {} : { birthdays }),
           ...(mail === undefined ? {} : { mail, isMailTodo: (id: string) => mail.isMailTodo(id) }),
         });
   const operator = createOperatorHandler({
@@ -182,7 +220,11 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
     timeZone: instance.config.timezone,
     now,
     ...(orchestrator === undefined ? {} : { orchestrator }),
-    sources: { ...(calendar === undefined ? {} : { calendar }), ...(mail === undefined ? {} : { mail }) },
+    sources: {
+      ...(calendar === undefined ? {} : { calendar }),
+      ...(mail === undefined ? {} : { mail }),
+      ...(birthdays === undefined ? {} : { birthdays }),
+    },
   });
   const scheduler = createReminderScheduler({ store, dispatcher, now });
   const briefings = createBriefings({
@@ -195,6 +237,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
       const findings = store.observations.listOpen(HEALTH_SOURCE).length;
       return [
         ...(calendar?.today() ?? []),
+        ...(birthdays?.briefing() ?? []),
         ...(mail?.briefing() ?? []),
         ...(findings === 0 ? [] : [`Server health: ${findings} open ${findings === 1 ? "finding" : "findings"} (/health).`]),
         ...(github?.summary() ?? []),
@@ -283,6 +326,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
       startWatcher(HEALTH_SOURCE, health);
       startWatcher(GITHUB_SOURCE, github);
       startWatcher(CALENDAR_SOURCE, calendar);
+      startWatcher(BIRTHDAY_SOURCE, birthdays);
       startWatcher(MAIL_SOURCE, mail);
       const sent = (await scheduler.tick()) + (await briefings.tick());
       // Only a completed tick counts as alive; a throwing tick skips the beat.

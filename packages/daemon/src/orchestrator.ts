@@ -27,6 +27,7 @@ export interface OrchestratorDeps {
   dailyBudgetUsd: number;
   role: string;
   calendar?: { forModel(): unknown[] };
+  birthdays?: { forModel(): unknown[] };
   mail?: { forModel(): unknown };
   // Todos created from mail carry text a spoofed sender may control; the model gets a placeholder.
   isMailTodo?: (todoId: string) => boolean;
@@ -100,9 +101,10 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           });
         }
         if (scope === "calendar") {
-          return JSON.stringify(
-            deps.calendar === undefined ? { calendar: "not configured" } : { events: deps.calendar.forModel() },
-          );
+          return JSON.stringify({
+            events: deps.calendar?.forModel() ?? [],
+            birthdays: deps.birthdays?.forModel() ?? [],
+          });
         }
         if (scope === "mail") {
           return JSON.stringify(deps.mail === undefined ? { mail: "not configured" } : deps.mail.forModel());

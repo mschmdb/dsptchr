@@ -45,7 +45,7 @@ export const TOOL_DEFINITIONS: Anthropic.Beta.BetaTool[] = [
   {
     name: "read_state",
     description:
-      "Read current state. todos: open todos with id, text, due time. calendar: today's and tomorrow's events (titles of other people's invitations are hidden). mail: counts of the last 24 h by category, how many need action or are urgent. health: open server health findings (host, severity, check, since). github: per repository, open PRs and issues by author type and the number of red CI workflows. status: pause state, counts, last health check.",
+      "Read current state. todos: open todos with id, text, due time. calendar: today's and tomorrow's events (titles of other people's invitations are hidden) and birthdays. mail: counts of the last 24 h by category, how many need action or are urgent. health: open server health findings (host, severity, check, since). github: per repository, open PRs and issues by author type and the number of red CI workflows. status: pause state, counts, last health check.",
     input_schema: {
       type: "object",
       properties: { scope: { type: "string", enum: ["todos", "calendar", "mail", "health", "github", "status"] } },

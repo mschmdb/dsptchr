@@ -206,6 +206,21 @@ describe("loadInstance", () => {
     });
   });
 
+  it("reads the icloud source", async () => {
+    writeInstance("private", {
+      "instance.yaml": "timezone: UTC\n",
+      "sources.yaml": "icloud:\n  username: user@example.com\n  password: icloud_caldav\n  calendars: [Personal]\n",
+    });
+    const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });
+    expect(instance.sources.icloud).toEqual({
+      username: "user@example.com",
+      password: "icloud_caldav",
+      calendars: ["Personal"],
+      birthdays: true,
+      intervalMinutes: 30,
+    });
+  });
+
   it("treats sources.yaml as optional", async () => {
     writeInstance("private", { "instance.yaml": "timezone: UTC\n" });
     const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });

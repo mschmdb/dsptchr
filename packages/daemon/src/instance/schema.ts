@@ -117,8 +117,25 @@ export const sourcesSchema = z
         mailIntervalMinutes: p.mail_interval_minutes,
       }))
       .optional(),
+    icloud: z
+      .strictObject({
+        username: z.email(),
+        password: z.string().min(1),
+        calendars: z.array(z.string().min(1)).default([]),
+        birthdays: z.boolean().default(true),
+        interval_minutes: z.number().int().min(10).max(1440).default(30),
+      })
+      .transform((i) => ({
+        username: i.username,
+        password: i.password,
+        calendars: i.calendars,
+        birthdays: i.birthdays,
+        intervalMinutes: i.interval_minutes,
+      }))
+      .optional(),
   })
   .transform((s) => ({
+    ...(s.icloud === undefined ? {} : { icloud: s.icloud }),
     ...(s.proton === undefined ? {} : { proton: s.proton }),
     ...(s.server_health === undefined ? {} : { serverHealth: s.server_health }),
     ...(s.github === undefined ? {} : { github: s.github }),
