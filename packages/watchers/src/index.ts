@@ -16,3 +16,10 @@ export {
   type RepoSnapshot,
 } from "./github/github.ts";
 export { buildProtonArgs, runProton, PROTON_ENV, type ProtonCommand, type ProtonOptions, type ProtonRun } from "./proton/cli.ts";
+export {
+  createProtonSource,
+  type CalendarEvent,
+  type MailMessage,
+  type MailSummary,
+  type ProtonSource,
+} from "./proton/source.ts";
