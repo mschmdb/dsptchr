@@ -15,3 +15,4 @@ export {
   type ReadStateInput,
   type UpdateTodoInput,
 } from "./orchestrator/tools.ts";
+export { readMail, MAIL_CATEGORIES, type MailInput, type MailReading } from "./readers/mail.ts";
