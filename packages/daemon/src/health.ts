@@ -17,6 +17,8 @@ const SOURCE = "server-health";
 const ACTOR = "watcher";
 const MAX_TEXT = 160;
 const MAX_KEY = 80;
+// Stays well below the 4,096 characters a Telegram message can hold.
+const MAX_MESSAGE = 3500;
 
 interface Line {
   text: string;
@@ -41,13 +43,14 @@ export function createHealthMonitor({
     return value === undefined ? undefined : Number(value);
   };
 
+  // Alerts once per failure streak; a denied or failed alert is retried on the next failure.
   async function reportFailure(error: unknown): Promise<void> {
     const failures = (readNumber("failures") ?? 0) + 1;
     store.cursors.set(cursor("failures"), String(failures));
-    if (failures !== failureThreshold) return;
+    if (failures < failureThreshold || store.cursors.get(cursor("failure_alerted")) === "1") return;
     const lastSuccess = readNumber("last_success");
     const kind = error instanceof Error ? error.name : "unknown error";
-    await dispatcher.dispatch({
+    const action = await dispatcher.dispatch({
       type: "message.send",
       payload: {
         text: `Server health check failed ${failures} times in a row (${kind}). Last success: ${
@@ -57,6 +60,7 @@ export function createHealthMonitor({
       idempotencyKey: `${SOURCE}:failing:${now()}`,
       actor: ACTOR,
     });
+    if (action.state === "executed") store.cursors.set(cursor("failure_alerted"), "1");
   }
 
   function diff(report: HealthReport): Line[] {
@@ -111,23 +115,43 @@ export function createHealthMonitor({
         return true;
       }
       store.cursors.set(cursor("failures"), "0");
+      store.cursors.set(cursor("failure_alerted"), "0");
       store.cursors.set(cursor("last_success"), String(now()));
 
-      const lines = diff(report);
-      if (lines.length === 0) return true;
-      const action = await dispatcher.dispatch({
-        type: "message.send",
-        payload: { text: ["Server health", ...lines.map((l) => l.text)].join("\n") },
-        idempotencyKey: `${SOURCE}:${now()}`,
-        actor: ACTOR,
-      });
-      // Record changes only once the operator has been told; otherwise the next run reports them again.
-      if (action.state === "executed") {
-        store.transaction(() => lines.forEach((l) => l.apply()));
+      const runAt = now();
+      const parts = chunk(diff(report));
+      for (const [index, part] of parts.entries()) {
+        const title = parts.length === 1 ? "Server health" : `Server health (${index + 1}/${parts.length})`;
+        const action = await dispatcher.dispatch({
+          type: "message.send",
+          payload: { text: [title, ...part.map((l) => l.text)].join("\n") },
+          idempotencyKey: `${SOURCE}:${runAt}:${index}`,
+          actor: ACTOR,
+        });
+        // Record changes only once the operator has been told; the rest is reported next run.
+        if (action.state !== "executed") break;
+        store.transaction(() => part.forEach((l) => l.apply()));
       }
       return true;
     },
   };
+}
+
+function chunk(lines: Line[]): Line[][] {
+  const parts: Line[][] = [];
+  let current: Line[] = [];
+  let size = 0;
+  for (const line of lines) {
+    if (current.length > 0 && size + line.text.length + 1 > MAX_MESSAGE) {
+      parts.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(line);
+    size += line.text.length + 1;
+  }
+  if (current.length > 0) parts.push(current);
+  return parts;
 }
 
 function dataOf(finding: HealthFinding): { host: string; text: string } {

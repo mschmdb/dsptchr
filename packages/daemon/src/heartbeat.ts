@@ -30,8 +30,8 @@ export function createHeartbeat({ url, intervalMs, now, fetch = globalThis.fetch
       if (target.protocol !== "https:" && target.protocol !== "http:") {
         return { sent: false, error: "invalid push URL" };
       }
-      target.searchParams.append("status", "up");
-      target.searchParams.append("msg", status);
+      target.searchParams.set("status", "up");
+      target.searchParams.set("msg", status);
 
       let response: Response;
       try {

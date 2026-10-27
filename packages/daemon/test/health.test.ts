@@ -111,6 +111,32 @@ describe("health monitor", () => {
     expect(text.length).toBeLessThan(260);
   });
 
+  it("retries the failure alert until it is delivered", async () => {
+    const h = setup();
+    h.failSends.value = true;
+    for (let i = 0; i < 3; i++) {
+      await h.run(new Error("exit code 255"));
+      h.later();
+    }
+    expect(h.sent).toEqual([]);
+    h.failSends.value = false;
+    await h.run(new Error("exit code 255"));
+    h.later();
+    await h.run(new Error("exit code 255"));
+    expect(h.sent).toHaveLength(1);
+  });
+
+  it("splits large incidents into messages within the size limit and records each delivered part", async () => {
+    const h = setup();
+    const findings = Array.from({ length: 60 }, (_, i) => crit(`host-a:check${i}`, "host-a", `${"z".repeat(140)} ${i}`));
+    await h.run({ findings, evaluatedHosts: hosts });
+
+    expect(h.sent.length).toBeGreaterThan(1);
+    expect(h.sent.every((m) => m.text.length <= 4096)).toBe(true);
+    expect(h.sent.flatMap((m) => m.text.split("\n").filter((l) => l.startsWith("- ")))).toHaveLength(60);
+    expect(h.store.observations.listOpen("server-health")).toHaveLength(60);
+  });
+
   it("alerts once after three consecutive check failures and again after recovery", async () => {
     const h = setup();
     for (let i = 0; i < 4; i++) {

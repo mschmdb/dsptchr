@@ -73,6 +73,21 @@ describe("heartbeat", () => {
     expect(urls[0]).toBe("https://monitor.example.com/push/x?token=abc&status=up&msg=ok");
   });
 
+  it("replaces status and msg already present in the push URL", async () => {
+    const urls: string[] = [];
+    const heartbeat = createHeartbeat({
+      url: { reveal: () => "https://monitor.example.com/push/x?status=down&msg=OK&ping=" },
+      intervalMs: 1,
+      now: () => T0,
+      fetch: async (input) => {
+        urls.push(String(input));
+        return new Response("{}");
+      },
+    });
+    await heartbeat.beat("paused");
+    expect(urls[0]).toBe("https://monitor.example.com/push/x?status=up&msg=paused&ping=");
+  });
+
   it("rejects non-http URLs", async () => {
     const heartbeat = createHeartbeat({
       url: { reveal: () => "file:///etc/passwd" },
