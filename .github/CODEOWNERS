@@ -1,0 +1,10 @@
+# Default owner
+* @mschmdb
+
+# Protected paths: these widen what the orchestrator may do (see AGENTS.md)
+/packages/gate/ @mschmdb
+/packages/executor/ @mschmdb
+/examples/**/policy.yaml @mschmdb
+/.github/ @mschmdb
+/.githooks/ @mschmdb
+/scripts/leak-guard/ @mschmdb
