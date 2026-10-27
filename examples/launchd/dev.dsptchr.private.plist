@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Copy to ~/Library/LaunchAgents/, replace the placeholder paths, then:
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.dsptchr.private.plist
+  A LaunchAgent (not a LaunchDaemon) runs in the user session, so it can read the login keychain.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.dsptchr.private</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/path/to/node</string>
+    <string>/path/to/dsptchr/packages/daemon/src/main.ts</string>
+    <string>--instance</string>
+    <string>private</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/path/to/dsptchr</string>
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardErrorPath</key>
+  <string>/path/to/home/Library/Logs/dsptchr/private.log</string>
+</dict>
+</plist>
