@@ -63,7 +63,8 @@ export function failureStreak({ store, dispatcher, source, label, now, timeZone,
             lastSuccess === undefined ? "never" : formatDue(lastSuccess, timeZone)
           }.`,
         },
-        idempotencyKey: `${source}:failing:${now()}`,
+        // Unique per streak (last success) and attempt (failure count), so a denied alert can retry.
+        idempotencyKey: `${source}:failing:${lastSuccess ?? 0}:${failures}`,
         actor: ACTOR,
       });
       if (action.state === "executed") cursors.set("failure_alerted", "1");
@@ -114,4 +115,22 @@ function chunk(lines: AlertLine[]): AlertLine[][] {
   }
   if (current.length > 0) parts.push(current);
   return parts;
+}
+
+// Wraps a watcher so that repeated failures alert the operator (see failureStreak).
+// A tick that returns false was not due and counts neither way.
+export function guarded(watcher: { tick(): Promise<boolean> }, streak: FailureStreakDeps): { tick(): Promise<boolean> } {
+  const alerts = failureStreak(streak);
+  return {
+    async tick() {
+      try {
+        const ran = await watcher.tick();
+        if (ran) alerts.succeeded();
+        return ran;
+      } catch (error) {
+        await alerts.failed(error);
+        return true;
+      }
+    },
+  };
 }
