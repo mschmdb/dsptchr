@@ -10,6 +10,7 @@ function deps(overrides: Partial<CheckDeps> = {}): CheckDeps {
     readMessage: () => "Add feature",
     stagedDiff: () => diffWith("const x = 1;"),
     stagedPaths: () => ["a.ts"],
+    trackedFiles: () => [{ path: "a.ts", content: "const x = 1;" }],
     ...overrides,
   };
 }
@@ -64,6 +65,23 @@ describe("runCheck message", () => {
 
   it("fails without a message file argument", () => {
     expect(runCheck(["message"], deps()).exitCode).toBe(2);
+  });
+});
+
+describe("runCheck files", () => {
+  it("passes clean tracked files", () => {
+    expect(runCheck(["files"], deps()).exitCode).toBe(0);
+  });
+
+  it("rejects a denylisted term in content or path without printing it", () => {
+    const result = runCheck(
+      ["files"],
+      deps({ trackedFiles: () => [{ path: "docs/host-a.md", content: "x" }, { path: "b.ts", content: "ok\nssh HOST-A" }] }),
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("tracked path:1");
+    expect(result.output).toContain("b.ts:2");
+    expect(result.output).not.toContain("host-a");
   });
 });
 

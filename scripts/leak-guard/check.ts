@@ -9,6 +9,7 @@ export interface CheckDeps {
   readMessage: (path: string) => string;
   stagedDiff: () => string;
   stagedPaths: () => string[];
+  trackedFiles: () => { path: string; content: string }[];
 }
 
 export interface CheckResult {
@@ -16,11 +17,11 @@ export interface CheckResult {
   output: string;
 }
 
-const USAGE = "usage: check.ts staged | message <commit-msg-file>";
+const USAGE = "usage: check.ts staged | message <commit-msg-file> | files";
 
 export function runCheck(args: readonly string[], deps: CheckDeps): CheckResult {
   const [mode, messagePath] = args;
-  if (mode !== "staged" && mode !== "message") {
+  if (mode !== "staged" && mode !== "message" && mode !== "files") {
     return { exitCode: 2, output: USAGE };
   }
   if (mode === "message" && messagePath === undefined) {
@@ -35,6 +36,18 @@ export function runCheck(args: readonly string[], deps: CheckDeps): CheckResult 
 
   // Paths are scanned separately because pure renames carry no content diff.
   // A path hit reports only its position: the path itself may be the leak.
+  if (mode === "files") {
+    // CI: every tracked file, content and path.
+    const files = deps.trackedFiles();
+    const fileHits = [
+      ...findHits(files.map((f) => f.path).join("\n"), terms, "tracked path"),
+      ...files.flatMap((f) => findHits(f.content, terms, f.path)),
+    ];
+    return fileHits.length === 0
+      ? { exitCode: 0, output: "" }
+      : { exitCode: 1, output: `leak-guard: private terms found\n${formatHits(fileHits)}` };
+  }
+
   const hits: Hit[] =
     mode === "staged"
       ? [
@@ -79,6 +92,11 @@ const realDeps: CheckDeps = {
     })
       .split("\0")
       .filter((path) => path !== ""),
+  trackedFiles: () =>
+    execFileSync("git", ["ls-files", "-z"], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 })
+      .split("\0")
+      .filter((path) => path !== "" && !path.endsWith("pnpm-lock.yaml"))
+      .map((path) => ({ path, content: readFileSync(path, "utf8") })),
 };
 
 if (import.meta.main) {
