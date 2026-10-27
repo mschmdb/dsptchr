@@ -6,7 +6,7 @@ import { WatcherError } from "../server-health/server-health.ts";
 export type ProtonCommand =
   | { kind: "mail.list"; folder: "inbox" | "all" | "archive"; newerThan?: string; to?: string; limit: number; page?: number }
   | { kind: "mail.get"; id: string }
-  | { kind: "calendar.list"; after: string; before: string };
+  | { kind: "calendar.list"; after: string; before: string; page?: number };
 
 export type ProtonRun = (
   file: string,
@@ -61,7 +61,14 @@ export function buildProtonArgs(command: ProtonCommand, profile: string): string
       return [...head, "mail", "messages", "get", command.id, "--render", "text", "--strip-quotes"];
     case "calendar.list":
       if (!DAY.test(command.after) || !DAY.test(command.before)) invalid("date");
-      return [...head, "calendar", "events", "list", "--after", command.after, "--before", command.before, "--limit", "100"];
+      if (command.page !== undefined && (!Number.isInteger(command.page) || command.page < 0 || command.page > 100)) {
+        invalid("page");
+      }
+      return [
+        ...head,
+        ...["calendar", "events", "list", "--after", command.after, "--before", command.before, "--limit", "100"],
+        ...(command.page === undefined || command.page === 0 ? [] : ["--page", String(command.page)]),
+      ];
     default:
       return invalid("command");
   }

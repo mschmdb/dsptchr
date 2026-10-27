@@ -18,6 +18,10 @@ describe("buildProtonArgs", () => {
     ],
     [{ kind: "mail.get", id: "aBc-_123==" }, ["mail", "messages", "get", "aBc-_123==", "--render", "text", "--strip-quotes"]],
     [
+      { kind: "calendar.list", after: "2026-10-27", before: "2026-10-28", page: 3 },
+      ["calendar", "events", "list", "--after", "2026-10-27", "--before", "2026-10-28", "--limit", "100", "--page", "3"],
+    ],
+    [
       { kind: "calendar.list", after: "2026-10-27", before: "2026-10-28" },
       ["calendar", "events", "list", "--after", "2026-10-27", "--before", "2026-10-28", "--limit", "100"],
     ],

@@ -12,6 +12,13 @@ export const updateTodoInput = z.strictObject({
   due_at: z.string().max(40).nullable().optional(),
 });
 
+export const searchCalendarInput = z.strictObject({
+  query: z.string().trim().max(100).nullable().optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+export type SearchCalendarInput = z.infer<typeof searchCalendarInput>;
 export type ReadStateInput = z.infer<typeof readStateInput>;
 export type CreateTodoInput = z.infer<typeof createTodoInput>;
 export type UpdateTodoInput = z.infer<typeof updateTodoInput>;
@@ -20,6 +27,7 @@ export type UpdateTodoInput = z.infer<typeof updateTodoInput>;
 // Every write becomes a proposal that passes gate and executor.
 export interface OrchestratorTools {
   read_state(input: ReadStateInput): Promise<string>;
+  search_calendar(input: SearchCalendarInput): Promise<string>;
   create_todo(input: CreateTodoInput): Promise<string>;
   update_todo(input: UpdateTodoInput): Promise<string>;
 }
@@ -31,6 +39,7 @@ export class ToolInputError extends Error {
 
 export const INPUT_SCHEMAS = {
   read_state: readStateInput,
+  search_calendar: searchCalendarInput,
   create_todo: createTodoInput,
   update_todo: updateTodoInput,
 } as const;
@@ -50,6 +59,21 @@ export const TOOL_DEFINITIONS: Anthropic.Beta.BetaTool[] = [
       type: "object",
       properties: { scope: { type: "string", enum: ["todos", "calendar", "birthdays", "mail", "health", "github", "status"] } },
       required: ["scope"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "search_calendar",
+    description:
+      "Search calendar events by title in a date range (YYYY-MM-DD, inclusive). Without query, lists all events in the range. Covers about 90 days back and 60 days ahead; the result states the window. Titles of other people's invitations are hidden and never match a query.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: ["string", "null"], description: "Words in the title, case-insensitive. Null for all events." },
+        from: { type: "string", description: "First day, YYYY-MM-DD" },
+        to: { type: "string", description: "Last day, YYYY-MM-DD" },
+      },
+      required: ["from", "to"],
       additionalProperties: false,
     },
   },

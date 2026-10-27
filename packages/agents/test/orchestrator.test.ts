@@ -46,6 +46,10 @@ function tools(overrides: Partial<OrchestratorTools> = {}): OrchestratorTools & 
       calls.push(["read_state", input]);
       return JSON.stringify({ todos: [] });
     },
+    search_calendar: async (input) => {
+      calls.push(["search_calendar", input]);
+      return JSON.stringify({ events: [] });
+    },
     create_todo: async (input) => {
       calls.push(["create_todo", input]);
       return "created todo t-1";
@@ -192,7 +196,7 @@ describe("runOrchestrator", () => {
       { role: "assistant", content: "earlier answer" },
       { role: "user", content: `${base.context}\n\nOperator message:\n${base.input}` },
     ]);
-    expect(request?.tools?.map((t) => (t as { name: string }).name)).toEqual(["read_state", "create_todo", "update_todo"]);
+    expect(request?.tools?.map((t) => (t as { name: string }).name)).toEqual(["read_state", "search_calendar", "create_todo", "update_todo"]);
     expect(request?.output_config).toEqual({ effort: "low" });
   });
 

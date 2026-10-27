@@ -13,6 +13,7 @@ export {
   type CreateTodoInput,
   type OrchestratorTools,
   type ReadStateInput,
+  type SearchCalendarInput,
   type UpdateTodoInput,
 } from "./orchestrator/tools.ts";
 export { readMail, MAIL_CATEGORIES, type MailInput, type MailReading } from "./readers/mail.ts";

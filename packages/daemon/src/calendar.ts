@@ -14,7 +14,12 @@ export interface CalendarMonitorDeps {
   intervalMs: number;
   now: () => number;
   timeZone: string;
+  // Stored window around today; the model searches inside it.
+  pastDays?: number;
+  futureDays?: number;
 }
+
+const MAX_RESULTS = 50;
 
 interface EventData {
   title: string;
@@ -25,6 +30,7 @@ interface EventData {
 }
 
 const pad = (n: number): string => String(n).padStart(2, "0");
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const day = (w: WallClock): string => `${w.year}-${pad(w.month)}-${pad(w.day)}`;
 
 // Keeps today's and tomorrow's events in the store for briefings, /calendar and the model.
@@ -53,11 +59,19 @@ export function createCalendarMonitor(deps: CalendarMonitorDeps) {
     return `${pad(from.hour)}:${pad(from.minute)}–${pad(to.hour)}:${pad(to.minute)}`;
   }
 
+  function dateLabel(instant: number): string {
+    const w = wallClockOf(instant, timeZone);
+    return `${WEEKDAYS[w.weekday] ?? ""} ${pad(w.day)}.${pad(w.month)}.${w.year}`;
+  }
+
   return {
     async tick(): Promise<boolean> {
       if (!claimRun(store, SOURCE, deps.intervalMs, now())) return false;
       const today = wallClockOf(now(), timeZone);
-      const events = await deps.fetchEvents({ after: day(today), before: day(addDays(today, 1)) });
+      const events = await deps.fetchEvents({
+        after: day(addDays(today, -(deps.pastDays ?? 0))),
+        before: day(addDays(today, deps.futureDays ?? 1)),
+      });
       const seen = new Set<string>();
       store.transaction(() => {
         for (const event of events) {
@@ -90,6 +104,37 @@ export function createCalendarMonitor(deps: CalendarMonitorDeps) {
 
     lines(offset: number): string[] {
       return eventsOn(offset).map((e) => `- ${e.allDay ? "all day" : timeRange(e)} ${e.title}`);
+    },
+
+    // Search own event titles; invitations match no query but show as "(invitation)" in plain listings.
+    search(input: { query?: string | null | undefined; from: string; to: string }): {
+      events: { date: string; time: string; title: string }[];
+      truncated: boolean;
+      window: { from: string; to: string };
+    } {
+      const toMs = (date: string, offset: number): number => {
+        const [year = 0, month = 0, dayOfMonth = 0] = date.split("-").map(Number);
+        return wallClockToUtc(addDays({ year, month, day: dayOfMonth, hour: 0, minute: 0 }, offset), timeZone);
+      };
+      const from = toMs(input.from, 0);
+      const to = toMs(input.to, 1);
+      const query = input.query?.trim().toLowerCase() ?? "";
+      const matches = store.observations
+        .listOpen(SOURCE)
+        .map((o) => o.data as EventData)
+        .filter((e) => e.start < to && e.end > from)
+        .filter((e) => query === "" || (e.own && e.title.toLowerCase().includes(query)))
+        .sort((a, b) => b.start - a.start);
+      const today = wallClockOf(now(), timeZone);
+      return {
+        events: matches.slice(0, MAX_RESULTS).map((e) => ({
+          date: dateLabel(e.start),
+          time: e.allDay ? "all day" : timeRange(e),
+          title: e.own ? e.title : "(invitation)",
+        })),
+        truncated: matches.length > MAX_RESULTS,
+        window: { from: day(addDays(today, -(deps.pastDays ?? 0))), to: day(addDays(today, deps.futureDays ?? 1)) },
+      };
     },
 
     forModel(): { day: "today" | "tomorrow"; time: string; title: string }[] {

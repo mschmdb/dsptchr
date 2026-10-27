@@ -115,7 +115,24 @@ describe("proton source", () => {
         cancelled: false,
       },
     ]);
-    expect(commands[0]).toEqual({ kind: "calendar.list", after: "2026-10-28", before: "2026-10-28" });
+    expect(commands[0]).toEqual({ kind: "calendar.list", after: "2026-10-28", before: "2026-10-28", page: 0 });
+  });
+
+  it("pages through calendar events", async () => {
+    const pages: number[] = [];
+    const proton = createProtonSource({
+      call: async (command) => {
+        const page = command.kind === "calendar.list" ? (command.page ?? 0) : 0;
+        pages.push(page);
+        return {
+          events: [{ id: `e${page}`, title: "T", start: "2026-10-28T09:00:00+01:00", end: "2026-10-28T10:00:00+01:00", all_day: false, organizer: "" }],
+          has_more: page < 2,
+        };
+      },
+    });
+    const events = await proton.events({ after: "2026-08-01", before: "2026-12-31" });
+    expect(pages).toEqual([0, 1, 2]);
+    expect(events.map((e) => e.key)).toEqual(["e0", "e1", "e2"]);
   });
 
   it("keeps a missing organizer as unknown", async () => {

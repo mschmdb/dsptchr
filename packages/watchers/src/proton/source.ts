@@ -55,6 +55,7 @@ const getSchema = z.object({
   body: z.string(),
 });
 const eventsSchema = z.object({
+  has_more: z.boolean().optional(),
   events: z.array(
     z.object({
       id: z.string(),
@@ -119,16 +120,24 @@ export function createProtonSource(deps: { call(command: ProtonCommand): Promise
     },
 
     async events(range: { after: string; before: string }): Promise<CalendarEvent[]> {
-      const raw = await deps.call({ kind: "calendar.list", after: range.after, before: range.before });
-      return parse(eventsSchema, raw, "calendar").events.map((e) => ({
-        key: e.occurrence === undefined || e.occurrence === "" ? e.id : `${e.id}@${e.occurrence}`,
-        title: e.title,
-        start: Date.parse(e.start),
-        end: Date.parse(e.end),
-        allDay: e.all_day,
-        organizer: e.organizer,
-        cancelled: e.status === "cancelled",
-      }));
+      const events: CalendarEvent[] = [];
+      for (let page = 0; page < maxPages; page++) {
+        const raw = await deps.call({ kind: "calendar.list", after: range.after, before: range.before, page });
+        const parsed = parse(eventsSchema, raw, "calendar");
+        events.push(
+          ...parsed.events.map((e) => ({
+            key: e.occurrence === undefined || e.occurrence === "" ? e.id : `${e.id}@${e.occurrence}`,
+            title: e.title,
+            start: Date.parse(e.start),
+            end: Date.parse(e.end),
+            allDay: e.all_day,
+            organizer: e.organizer,
+            cancelled: e.status === "cancelled",
+          })),
+        );
+        if (parsed.has_more !== true) return events;
+      }
+      throw new WatcherError("proton: calendar listing exceeds the page limit");
     },
   };
 }

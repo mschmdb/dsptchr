@@ -26,7 +26,7 @@ export interface OrchestratorDeps {
   effort: "low" | "medium" | "high";
   dailyBudgetUsd: number;
   role: string;
-  calendar?: { forModel(): unknown[] };
+  calendar?: { forModel(): unknown[]; search(input: { query?: string | null | undefined; from: string; to: string }): unknown };
   birthdays?: { forModel(): unknown[]; all(): unknown[] };
   mail?: { forModel(): unknown };
   // Todos created from mail carry text a spoofed sender may control; the model gets a placeholder.
@@ -151,6 +151,11 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           open_health_findings: store.observations.listOpen(HEALTH_SOURCE).length,
           last_health_check: last === undefined ? null : formatDue(Number(last), timeZone),
         });
+      },
+
+      async search_calendar(input) {
+        if (deps.calendar === undefined) return JSON.stringify({ calendar: "not configured" });
+        return JSON.stringify(deps.calendar.search(input));
       },
 
       async create_todo({ text, due_at }) {

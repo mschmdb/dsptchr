@@ -31,15 +31,17 @@ function setup(responses: (CalendarEvent[] | Error)[]) {
     intervalMs: 30 * 60_000,
     now: () => h.clock.now,
     timeZone: TZ,
+    pastDays: 90,
+    futureDays: 60,
   });
   return { ...h, monitor, ranges };
 }
 
 describe("calendar monitor", () => {
-  it("fetches today and tomorrow in local dates and stores events", async () => {
+  it("fetches the configured window in local dates and stores events", async () => {
     const h = setup([[ev("e1", "2026-10-27T14:00:00Z", "2026-10-27T15:00:00Z", "Dentist")]]);
     expect(await h.monitor.tick()).toBe(true);
-    expect(h.ranges).toEqual([{ after: "2026-10-27", before: "2026-10-28" }]);
+    expect(h.ranges).toEqual([{ after: "2026-07-29", before: "2026-12-26" }]);
     expect(h.store.observations.listOpen(CALENDAR_SOURCE)).toHaveLength(1);
   });
 
@@ -94,6 +96,51 @@ describe("calendar monitor", () => {
       { day: "tomorrow", time: "10:00–11:00", title: "Mine" },
       { day: "tomorrow", time: "12:00–13:00", title: "(invitation)" },
     ]);
+  });
+
+  it("searches own event titles in a date range, newest first, case-insensitive", async () => {
+    const h = setup([
+      [
+        ev("p1", "2026-09-10T08:00:00Z", "2026-09-10T09:00:00Z", "BMW Service"),
+        ev("p2", "2026-10-01T08:00:00Z", "2026-10-01T09:00:00Z", "bmw tyre change"),
+        ev("p3", "2026-10-02T08:00:00Z", "2026-10-02T09:00:00Z", "Dentist"),
+        ev("p4", "2026-10-03T08:00:00Z", "2026-10-03T09:00:00Z", "BMW secret", { organizer: "x@example.com" }),
+      ],
+    ]);
+    await h.monitor.tick();
+    expect(h.monitor.search({ query: "bmw", from: "2026-07-29", to: "2026-10-27" })).toEqual({
+      events: [
+        { date: "Thu 01.10.2026", time: "10:00–11:00", title: "bmw tyre change" },
+        { date: "Thu 10.09.2026", time: "10:00–11:00", title: "BMW Service" },
+      ],
+      truncated: false,
+      window: { from: "2026-07-29", to: "2026-12-26" },
+    });
+  });
+
+  it("lists everything in a range without a query, invitations without titles", async () => {
+    const h = setup([
+      [
+        ev("p3", "2026-10-02T08:00:00Z", "2026-10-02T09:00:00Z", "Dentist"),
+        ev("p4", "2026-10-03T08:00:00Z", "2026-10-03T09:00:00Z", "Secret", { organizer: "x@example.com" }),
+      ],
+    ]);
+    await h.monitor.tick();
+    expect(h.monitor.search({ from: "2026-10-01", to: "2026-10-05" }).events).toEqual([
+      { date: "Sat 03.10.2026", time: "10:00–11:00", title: "(invitation)" },
+      { date: "Fri 02.10.2026", time: "10:00–11:00", title: "Dentist" },
+    ]);
+  });
+
+  it("caps search results", async () => {
+    const many = Array.from({ length: 80 }, (_, i) =>
+      ev(`m${i}`, new Date(Date.parse("2026-09-01T08:00:00Z") + i * 3_600_000).toISOString(), new Date(Date.parse("2026-09-01T08:30:00Z") + i * 3_600_000).toISOString(), "Meeting"),
+    );
+    const h = setup([many]);
+    await h.monitor.tick();
+    const result = h.monitor.search({ query: "meeting", from: "2026-08-01", to: "2026-10-27" });
+    expect(result.events).toHaveLength(50);
+    expect(result.truncated).toBe(true);
   });
 
   it("runs only once per interval and never while paused", async () => {

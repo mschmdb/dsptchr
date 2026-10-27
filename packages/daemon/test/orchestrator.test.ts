@@ -166,6 +166,33 @@ describe("orchestrator", () => {
     expect(state).not.toContain("Wire 500");
   });
 
+  it("searches the calendar through its own tool", async () => {
+    const h = harness();
+    const createMessage = scripted([{ tool: "search_calendar", input: { query: "bmw", from: "2026-07-01", to: "2026-10-27" } }, { text: "ok" }]);
+    const calls: unknown[] = [];
+    const orchestrator = createOrchestrator({
+      store: h.store,
+      dispatcher: h.dispatcher,
+      timeZone: TZ,
+      now: () => h.clock.now,
+      createMessage,
+      model: "claude-sonnet-5-5",
+      effort: "low",
+      dailyBudgetUsd: 1,
+      role: "",
+      calendar: {
+        forModel: () => [],
+        search: (input: unknown) => {
+          calls.push(input);
+          return { events: [{ date: "Thu 10.09.2026", time: "10:00–11:00", title: "BMW Service" }], truncated: false };
+        },
+      },
+    });
+    await orchestrator.handle(text("wann war ich bei bmw?"));
+    expect(calls).toEqual([{ query: "bmw", from: "2026-07-01", to: "2026-10-27" }]);
+    expect(resultOf(createMessage.requests[1])).toContain("BMW Service");
+  });
+
   it("snoozes and completes todos through the gate", async () => {
     const steps: Step[] = [];
     const h = setup(steps);

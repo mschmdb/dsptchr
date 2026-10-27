@@ -44,6 +44,9 @@ export interface App {
 const INBOX_RETENTION_MS = 7 * 86_400_000;
 // Reader role: tool-less classification of untrusted mail (AR-2).
 const READER_MODEL = "claude-haiku-5-5";
+// Calendar window kept in the store for briefings and searches.
+const CALENDAR_PAST_DAYS = 90;
+const CALENDAR_FUTURE_DAYS = 60;
 // Chat memory the orchestrator sees is 6 h; a day is kept for debugging, then deleted.
 const CONVERSATION_RETENTION_MS = 86_400_000;
 
@@ -137,6 +140,8 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
           intervalMs: Math.min(protonConfig?.calendarIntervalMinutes ?? 1440, icloudConfig?.intervalMinutes ?? 1440) * 60_000,
           now,
           timeZone: instance.config.timezone,
+          pastDays: CALENDAR_PAST_DAYS,
+          futureDays: CALENDAR_FUTURE_DAYS,
         });
   const birthdays =
     icloud === undefined || icloudConfig?.birthdays !== true
