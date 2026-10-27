@@ -33,3 +33,7 @@ knowledge:
   adapter: /path/to/knowledge-adapter.ts  # your adapter module, see docs/knowledge.md
   root: /path/to/notes               # knowledge base root, passed to the adapter
   scope: privat                      # this instance's scope; sensitive paths stay locked
+plausible:
+  url: https://stats.example.com     # your Plausible instance
+  api_key: plausible_api_key         # secrets.yaml entry with a read-only Stats API key
+  sites: [site-a.example.com]        # site domains for the morning briefing

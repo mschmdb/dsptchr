@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 
-export const readStateInput = z.strictObject({ scope: z.enum(["todos", "calendar", "birthdays", "mail", "health", "github", "status"]) });
+export const readStateInput = z.strictObject({ scope: z.enum(["todos", "calendar", "birthdays", "mail", "health", "github", "analytics", "status"]) });
 export const createTodoInput = z.strictObject({
   text: z.string().trim().min(1).max(500),
   due_at: z.string().max(40).nullable().optional(),
@@ -75,10 +75,10 @@ export const TOOL_DEFINITIONS: Anthropic.Beta.BetaTool[] = [
   {
     name: "read_state",
     description:
-      "Read current state. todos: open todos with id, text, due time. calendar: today's and tomorrow's events (titles of other people's invitations are hidden) and birthdays. birthdays: every contact's birthday with its next date. mail: counts of the last 24 h by category, how many need action or are urgent. health: open server health findings (host, severity, check, since). github: per repository, open PRs and issues by author type and the number of red CI workflows. status: pause state, counts, last health check.",
+      "Read current state. todos: open todos with id, text, due time. calendar: today's and tomorrow's events (titles of other people's invitations are hidden) and birthdays. birthdays: every contact's birthday with its next date. mail: counts of the last 24 h by category, how many need action or are urgent. health: open server health findings (host, severity, check, since). github: per repository, open PRs and issues by author type and the number of red CI workflows. analytics: web analytics of the operator's sites (yesterday and the last 30 days). status: pause state, counts, last health check.",
     input_schema: {
       type: "object",
-      properties: { scope: { type: "string", enum: ["todos", "calendar", "birthdays", "mail", "health", "github", "status"] } },
+      properties: { scope: { type: "string", enum: ["todos", "calendar", "birthdays", "mail", "health", "github", "analytics", "status"] } },
       required: ["scope"],
       additionalProperties: false,
     },
