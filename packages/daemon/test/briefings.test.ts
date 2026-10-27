@@ -5,9 +5,19 @@ import { harness, T0, TZ } from "./support/harness.ts";
 // T0 is Tuesday 2026-10-27 11:00 Berlin (UTC+1).
 const at = (iso: string): number => Date.parse(iso);
 
-function setup(times = { morning: { hour: 7, minute: 30 }, evening: { hour: 17, minute: 30 } }) {
+function setup(
+  times = { morning: { hour: 7, minute: 30 }, evening: { hour: 17, minute: 30 } },
+  extras: () => string[] = () => [],
+) {
   const h = harness();
-  const briefings = createBriefings({ store: h.store, dispatcher: h.dispatcher, timeZone: TZ, times, now: () => h.clock.now });
+  const briefings = createBriefings({
+    store: h.store,
+    dispatcher: h.dispatcher,
+    timeZone: TZ,
+    times,
+    now: () => h.clock.now,
+    extras,
+  });
   const todo = (text: string, dueAt?: number) =>
     h.store.todos.create({ text, ...(dueAt === undefined ? {} : { dueAt }), actor: "operator" });
   return { ...h, briefings, todo };
@@ -74,6 +84,13 @@ describe("briefings", () => {
     h.clock.now = at("2026-10-27T06:30:00Z");
     await h.briefings.tick();
     expect(h.sent[0]?.text).toBe("Good morning.\nNothing due today.");
+  });
+
+  it("appends watcher summaries to the morning briefing", async () => {
+    const h = setup(undefined, () => ["GitHub: 2 bot PRs."]);
+    h.clock.now = at("2026-10-27T06:30:00Z");
+    await h.briefings.tick();
+    expect(h.sent[0]?.text).toBe("Good morning.\nNothing due today.\nGitHub: 2 bot PRs.");
   });
 
   it("lists what is still open in the evening", async () => {

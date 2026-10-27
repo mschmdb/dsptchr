@@ -64,6 +64,8 @@ export const secretsSchema = z.record(
 
 export type SecretRefs = z.output<typeof secretsSchema>;
 
+const githubRepoName = z.string().regex(/^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/, "expected owner/name");
+
 export const sourcesSchema = z
   .strictObject({
     server_health: z
@@ -82,7 +84,25 @@ export const sourcesSchema = z
         timeoutSeconds: s.timeout_seconds,
       }))
       .optional(),
+    github: z
+      .strictObject({
+        token: z.string().min(1),
+        repos: z
+          .array(
+            z.union([
+              githubRepoName.transform((name) => ({ name, level: "observe" as const })),
+              z.strictObject({ name: githubRepoName, level: z.enum(["observe", "maintain"]).default("observe") }),
+            ]),
+          )
+          .min(1),
+        interval_minutes: z.number().int().min(5).max(1440).default(15),
+      })
+      .transform((g) => ({ token: g.token, repos: g.repos, intervalMinutes: g.interval_minutes }))
+      .optional(),
   })
-  .transform((s) => (s.server_health === undefined ? {} : { serverHealth: s.server_health }));
+  .transform((s) => ({
+    ...(s.server_health === undefined ? {} : { serverHealth: s.server_health }),
+    ...(s.github === undefined ? {} : { github: s.github }),
+  }));
 
 export type Sources = z.output<typeof sourcesSchema>;

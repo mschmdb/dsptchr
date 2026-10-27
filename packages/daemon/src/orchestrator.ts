@@ -13,6 +13,7 @@ import type { Store, StoredAction } from "@dsptchr/store";
 import { sanitizeUntrusted } from "@dsptchr/watchers";
 import type { Dispatcher } from "./dispatch.ts";
 import { formatDue, formatNow } from "./format.ts";
+import { GITHUB_SOURCE } from "./github.ts";
 import { HEALTH_SOURCE } from "./health.ts";
 
 export interface OrchestratorDeps {
@@ -35,6 +36,9 @@ const MAX_AHEAD_MS = 366 * 86_400_000;
 const HISTORY_TURNS = 12;
 const HISTORY_MAX_AGE_MS = 6 * 3_600_000;
 const CHECK_NAME = /^[a-z_]{1,24}$/;
+
+type Counts = Record<"self" | "bot" | "other", number>;
+const emptyCounts = (): Counts => ({ self: 0, bot: 0, other: 0 });
 
 export class ActionFailedError extends Error {
   override name = "ActionFailedError";
@@ -97,6 +101,23 @@ export function createOrchestrator(deps: OrchestratorDeps) {
               since: formatDue(o.firstSeenAt, timeZone),
             })),
           });
+        }
+        if (scope === "github") {
+          // Counts only: titles and workflow names come from GitHub and stay out of model context.
+          const repos = new Map<string, { open_prs: Counts; open_issues: Counts; ci_red: number }>();
+          for (const o of store.observations.listOpen(GITHUB_SOURCE)) {
+            const d = o.data as { repo?: unknown; kind?: unknown; author?: unknown };
+            if (typeof d.repo !== "string") continue;
+            const name = d.repo.split("/")[1] ?? d.repo;
+            const entry = repos.get(name) ?? { open_prs: emptyCounts(), open_issues: emptyCounts(), ci_red: 0 };
+            if (d.kind === "ci") {
+              if (o.version === "red") entry.ci_red++;
+            } else if (d.author === "self" || d.author === "bot" || d.author === "other") {
+              (d.kind === "pr" ? entry.open_prs : entry.open_issues)[d.author]++;
+            }
+            repos.set(name, entry);
+          }
+          return JSON.stringify({ repos: [...repos.entries()].map(([repo, e]) => ({ repo, ...e })) });
         }
         const last = store.cursors.get(`${HEALTH_SOURCE}:last_success`);
         return JSON.stringify({

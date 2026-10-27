@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 
-export const readStateInput = z.strictObject({ scope: z.enum(["todos", "health", "status"]) });
+export const readStateInput = z.strictObject({ scope: z.enum(["todos", "health", "github", "status"]) });
 export const createTodoInput = z.strictObject({
   text: z.string().trim().min(1).max(500),
   due_at: z.string().max(40).nullable().optional(),
@@ -45,10 +45,10 @@ export const TOOL_DEFINITIONS: Anthropic.Beta.BetaTool[] = [
   {
     name: "read_state",
     description:
-      "Read current state. todos: open todos with id, text, due time. health: open server health findings (host, severity, check, since). status: pause state, counts, last health check.",
+      "Read current state. todos: open todos with id, text, due time. health: open server health findings (host, severity, check, since). github: per repository, open PRs and issues by author type and the number of red CI workflows. status: pause state, counts, last health check.",
     input_schema: {
       type: "object",
-      properties: { scope: { type: "string", enum: ["todos", "health", "status"] } },
+      properties: { scope: { type: "string", enum: ["todos", "health", "github", "status"] } },
       required: ["scope"],
       additionalProperties: false,
     },

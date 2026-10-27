@@ -16,13 +16,15 @@ export interface BriefingDeps {
   timeZone: string;
   times: { [K in BriefingKind]?: ClockTime | undefined };
   now: () => number;
+  // Watcher summaries for the morning briefing, one line each.
+  extras?: () => string[];
 }
 
 const KINDS: readonly BriefingKind[] = ["morning", "evening"];
 
 // Sends each briefing once per day at its time. A briefing missed while the machine
 // slept runs once later the same day; missed days are not replayed.
-export function createBriefings({ store, dispatcher, timeZone, times, now }: BriefingDeps) {
+export function createBriefings({ store, dispatcher, timeZone, times, now, extras = () => [] }: BriefingDeps) {
   const cursorKey = (kind: BriefingKind): string => `briefing:${kind}`;
 
   function todaySlot(time: ClockTime): number {
@@ -47,7 +49,7 @@ export function createBriefings({ store, dispatcher, timeZone, times, now }: Bri
       const undated = active.filter((t) => t.dueAt === undefined).length;
       const body = lines.length === 0 ? ["Nothing due today."] : ["Due today:", ...lines];
       const tail = undated > 0 ? [`${undated} more without a due date.`] : [];
-      return ["Good morning.", ...body, ...tail].join("\n");
+      return ["Good morning.", ...body, ...tail, ...extras()].join("\n");
     }
     return ["Evening check.", ...(lines.length === 0 ? ["Nothing left open for today."] : ["Still open:", ...lines])].join("\n");
   }

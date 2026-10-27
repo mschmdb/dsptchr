@@ -167,6 +167,30 @@ describe("loadInstance", () => {
     await expect(loadInstance("private", { home, keychain: fakeKeychain({}) })).rejects.toThrow(/hosts/);
   });
 
+  it("reads the github source", async () => {
+    writeInstance("private", {
+      "instance.yaml": "timezone: UTC\n",
+      "sources.yaml": "github:\n  token: github_token\n  repos:\n    - owner-a/repo-a\n    - name: owner-a/repo-b\n      level: observe\n",
+    });
+    const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });
+    expect(instance.sources.github).toEqual({
+      token: "github_token",
+      repos: [
+        { name: "owner-a/repo-a", level: "observe" },
+        { name: "owner-a/repo-b", level: "observe" },
+      ],
+      intervalMinutes: 15,
+    });
+  });
+
+  it.each(["../x", "a/b/c", "noslash"])("rejects the github repository name %j", async (name) => {
+    writeInstance("private", {
+      "instance.yaml": "timezone: UTC\n",
+      "sources.yaml": `github:\n  token: t\n  repos: ["${name}"]\n`,
+    });
+    await expect(loadInstance("private", { home, keychain: fakeKeychain({}) })).rejects.toThrow(/sources.yaml/);
+  });
+
   it("treats sources.yaml as optional", async () => {
     writeInstance("private", { "instance.yaml": "timezone: UTC\n" });
     const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });

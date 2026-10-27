@@ -119,6 +119,39 @@ describe("/health", () => {
   });
 });
 
+describe("/github", () => {
+  it("lists open items by others and bots and red CI with links", async () => {
+    const h = setup();
+    const observe = (externalId: string, version: string, data: Record<string, unknown>) =>
+      h.store.observations.observe({ source: "github", externalId, version, data });
+    observe("owner-a/repo-a#pr7", "open", { repo: "owner-a/repo-a", kind: "pr", number: 7, author: "other", title: "Fix login", url: "https://github.com/a/7" });
+    observe("owner-a/repo-a#pr8", "open", { repo: "owner-a/repo-a", kind: "pr", number: 8, author: "bot", title: "Bump vite", url: "https://github.com/a/8" });
+    observe("owner-a/repo-a#issue4", "open", { repo: "owner-a/repo-a", kind: "issue", number: 4, author: "self", title: "Mine", url: "" });
+    observe("owner-a/repo-a:ci:1", "red", { repo: "owner-a/repo-a", kind: "ci", workflow: "CI", url: "https://github.com/a/r/1" });
+
+    await h.handler.handle(text("/github"));
+
+    expect(h.sent[0]?.text).toBe(
+      [
+        "GitHub",
+        "- PR repo-a#7: Fix login",
+        "  https://github.com/a/7",
+        "- bot PR repo-a#8: Bump vite",
+        "  https://github.com/a/8",
+        "- CI red: repo-a CI",
+        "  https://github.com/a/r/1",
+        "Own open items: 1.",
+      ].join("\n"),
+    );
+  });
+
+  it("says when nothing is open", async () => {
+    const h = setup();
+    await h.handler.handle(text("/github"));
+    expect(h.sent[0]?.text).toBe("GitHub: nothing open.");
+  });
+});
+
 describe("/status", () => {
   it("summarizes the daemon state", async () => {
     const h = setup();

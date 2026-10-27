@@ -9,3 +9,10 @@ server_health:
   hosts: [host-a, host-b, extern]
   interval_minutes: 15
   timeout_seconds: 300
+github:
+  token: github_token                # name of an entry in secrets.yaml (fine-grained, read-only)
+  repos:
+    - owner/repo-a                   # level defaults to observe
+    - name: owner/repo-b
+      level: observe                 # maintain arrives with the updater (Phase 2)
+  interval_minutes: 15

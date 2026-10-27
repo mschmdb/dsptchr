@@ -6,8 +6,9 @@ import { parsePolicy } from "@dsptchr/gate";
 import { openStore, type Store } from "@dsptchr/store";
 import { createBriefings } from "./briefings.ts";
 import { createDispatcher } from "./dispatch.ts";
-import { runServerHealth } from "@dsptchr/watchers";
-import { createHealthMonitor } from "./health.ts";
+import { fetchGithubLogin, fetchRepoSnapshot, runServerHealth } from "@dsptchr/watchers";
+import { createGithubMonitor, GITHUB_SOURCE } from "./github.ts";
+import { createHealthMonitor, HEALTH_SOURCE } from "./health.ts";
 import { createHeartbeat } from "./heartbeat.ts";
 import { createInbox, type Inbox } from "./inbox.ts";
 import { anthropicCreateMessage, createOrchestrator } from "./orchestrator.ts";
@@ -115,6 +116,13 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
     timeZone: instance.config.timezone,
     times: instance.config.briefings,
     now,
+    extras: () => {
+      const findings = store.observations.listOpen(HEALTH_SOURCE).length;
+      return [
+        ...(findings === 0 ? [] : [`Server health: ${findings} open ${findings === 1 ? "finding" : "findings"} (/health).`]),
+        ...(github?.summary() ?? []),
+      ];
+    },
   });
   const healthConfig = instance.sources.serverHealth;
   const health =
@@ -134,16 +142,39 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
           now,
           timeZone: instance.config.timezone,
         });
-  // The check may take minutes (SSH to every host); it runs beside the scheduler, never twice at once.
-  let healthRun: Promise<unknown> | undefined;
-  const startHealth = (): void => {
-    if (health === undefined || healthRun !== undefined) return;
-    healthRun = health
-      .tick()
-      .catch((error: unknown) => options.onWatcherError?.(error instanceof Error ? error.name : "unknown error"))
-      .finally(() => {
-        healthRun = undefined;
-      });
+  const githubConfig = instance.sources.github;
+  const github =
+    githubConfig === undefined
+      ? undefined
+      : await (async () => {
+          const token = await instance.secret(githubConfig.token);
+          const fetchOptions = options.fetch === undefined ? {} : { fetch: options.fetch };
+          let self: string | undefined;
+          return createGithubMonitor({
+            store,
+            dispatcher,
+            repos: githubConfig.repos.map((r) => r.name),
+            fetchRepo: async (repo) => {
+              self ??= await fetchGithubLogin({ token, ...fetchOptions });
+              return fetchRepoSnapshot(repo, { token, self, ...fetchOptions });
+            },
+            intervalMs: githubConfig.intervalMinutes * 60_000,
+            now,
+            timeZone: instance.config.timezone,
+          });
+        })();
+
+  // Watchers may take minutes (SSH, many API calls); each runs beside the scheduler, never twice at once.
+  const running = new Map<string, Promise<unknown>>();
+  const startWatcher = (name: string, watcher: { tick(): Promise<boolean> } | undefined): void => {
+    if (watcher === undefined || running.has(name)) return;
+    running.set(
+      name,
+      watcher
+        .tick()
+        .catch((error: unknown) => options.onWatcherError?.(`${name}: ${error instanceof Error ? error.name : "unknown error"}`))
+        .finally(() => running.delete(name)),
+    );
   };
 
   const inbox = createInbox({
@@ -172,7 +203,8 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
       store.inbox.purgeDone(now() - INBOX_RETENTION_MS);
       store.conversation.purgeBefore(now() - CONVERSATION_RETENTION_MS);
       store.orchestratorEvents.purgeBefore(now() - CONVERSATION_RETENTION_MS);
-      startHealth();
+      startWatcher(HEALTH_SOURCE, health);
+      startWatcher(GITHUB_SOURCE, github);
       const sent = (await scheduler.tick()) + (await briefings.tick());
       // Only a completed tick counts as alive; a throwing tick skips the beat.
       const beat = await heartbeat?.beat(store.flags.isPaused() ? "paused" : "ok");
