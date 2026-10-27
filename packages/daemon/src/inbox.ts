@@ -9,6 +9,11 @@ export interface InboxDeps {
   // until then every drain tries again.
   onDead(entryId: string): Promise<boolean>;
   maxAttempts?: number;
+  handlerTimeoutMs?: number;
+}
+
+export class HandlerTimeoutError extends Error {
+  override name = "HandlerTimeoutError";
 }
 
 const BASE_DELAY_MS = 60_000;
@@ -22,7 +27,21 @@ export interface Inbox {
   idle(): Promise<void>;
 }
 
-export function createInbox({ store, handle, now, onDead, maxAttempts = 5 }: InboxDeps): Inbox {
+export function createInbox({ store, handle, now, onDead, maxAttempts = 5, handlerTimeoutMs = 60_000 }: InboxDeps): Inbox {
+  // A handler that never settles must not block later events such as "stop". The late
+  // attempt may still finish; idempotency keys keep the retry from repeating its steps.
+  async function handleBounded(event: InboundEvent): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new HandlerTimeoutError(`handler exceeded ${handlerTimeoutMs} ms`)), handlerTimeoutMs);
+    });
+    try {
+      await Promise.race([handle(event), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   let running: Promise<number> | undefined;
 
   async function notifyDead(): Promise<void> {
@@ -50,7 +69,7 @@ export function createInbox({ store, handle, now, onDead, maxAttempts = 5 }: Inb
           continue;
         }
         try {
-          await handle(parsed.data);
+          await handleBounded(parsed.data);
           store.inbox.markDone(entry.id);
           succeeded++;
         } catch (error) {

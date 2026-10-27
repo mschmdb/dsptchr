@@ -131,6 +131,30 @@ describe("phase 1 milestone", () => {
     expect(app.store.todos.listActive().map((t) => t.text)).toEqual(["Buy milk"]);
   });
 
+  it("retries a dead-event notice in a later hour after the rate limit denied it", async () => {
+    writeFileSync(
+      join(home, "test", "policy.yaml"),
+      "actions:\n  message.send:\n    level: auto\n    rate_limit: { max: 1, per_minutes: 60 }\n",
+    );
+    app.close();
+    const instance = await loadInstance("test", { home, keychain: { read: async () => TOKEN } });
+    app = await createApp(instance, { fetch: telegram.fetch, now: () => clock.now, pollTimeoutSeconds: 0 });
+    // A corrupt entry dies; the reply to the second event uses up the hourly message budget
+    // before the dead notice is sent, so the gate denies the notice.
+    app.store.inbox.accept([{ id: "dead-1", receivedAt: T0, payload: { kind: "mystery" } }]);
+    telegram.inbox.push([
+      { update_id: 30, message: { message_id: 1, from: { id: OPERATOR }, chat: { id: GROUP }, text: "x @ nope" } },
+    ]);
+    await pump();
+    const before = telegram.sent.length;
+    expect(before).toBe(1);
+
+    clock.now += 61 * 60_000;
+    await app.inbox.drain();
+    expect(telegram.sent.length).toBe(before + 1);
+    expect(String(telegram.sent.at(-1)?.["text"])).toContain("dead-1");
+  });
+
   it("persists the Telegram offset so restarts do not replay handled updates", async () => {
     telegram.inbox.push([
       { update_id: 10, message: { message_id: 1, from: { id: OPERATOR }, chat: { id: GROUP }, text: "Buy milk" } },

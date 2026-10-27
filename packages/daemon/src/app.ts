@@ -81,7 +81,8 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
       const action = await dispatcher.dispatch({
         type: "message.send",
         payload: { text: `A message could not be processed and was set aside. Audit log subject: ${entryId}` },
-        idempotencyKey: `inbox:${entryId}:dead`,
+        // One attempt per hour: a denial (e.g. rate limit) is final for its key.
+        idempotencyKey: `inbox:${entryId}:dead:${Math.floor(now() / 3_600_000)}`,
         actor: "daemon",
       });
       return action.state === "executed";

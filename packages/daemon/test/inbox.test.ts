@@ -4,7 +4,10 @@ import { describe, expect, it } from "vitest";
 import { createInbox } from "../src/inbox.ts";
 import { T0, text } from "./support/harness.ts";
 
-function setup(handle: (event: InboundEvent) => Promise<void>, options: { maxAttempts?: number } = {}) {
+function setup(
+  handle: (event: InboundEvent) => Promise<void>,
+  options: { maxAttempts?: number; handlerTimeoutMs?: number } = {},
+) {
   const clock = { now: T0 };
   const store = openStore({ path: ":memory:", now: () => clock.now });
   const dead: string[] = [];
@@ -158,6 +161,23 @@ describe("inbox processor", () => {
     release();
     await drain;
     await inbox.idle();
+  });
+
+  it("gives up on a hanging handler and moves on to the next event", async () => {
+    const handled: string[] = [];
+    const stuck = text("stuck");
+    const next = text("stop");
+    const { inbox, store } = setup(
+      async (event) => {
+        if (event.id === stuck.id) return new Promise<void>(() => {});
+        handled.push(event.id);
+      },
+      { handlerTimeoutMs: 10 },
+    );
+    inbox.accept([stuck, next]);
+    await inbox.drain();
+    expect(handled).toEqual([next.id]);
+    expect(store.inbox.get(stuck.id)).toMatchObject({ state: "pending", attempts: 1, lastError: "HandlerTimeoutError" });
   });
 
   it("serializes concurrent drains so no event runs twice", async () => {
