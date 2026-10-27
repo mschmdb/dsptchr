@@ -24,3 +24,9 @@ Append-only. Newest at the bottom. Format: ID, date, decision, reason.
 - **D-20 (2026-10-27)** No build step. Node 24 runs the TypeScript sources directly (type stripping); packages export `src/index.ts`. TypeScript runs only as type checker with `erasableSyntaxOnly`. Reason: fewer moving parts, no dist drift.
 - **D-21 (2026-10-27)** SQLite via the built-in `node:sqlite` instead of a native addon. Reason: no dependency, no native build.
 - **D-22 (2026-10-27)** Instance settings that are not sources or policy (timezone, channel IDs) live in `instance.yaml`. Secrets resolve lazily through `secrets.yaml` keychain references and are wrapped in a `Secret` type that never prints its value.
+- **D-23 (2026-10-27)** Leak guard prints only the denylist entry number for a hit, never the term. Reason: CI logs may become public; the terms must not.
+- **D-24 (2026-10-27)** The audit log is hash-chained and protected against UPDATE/DELETE by triggers. It records IDs, states, times and gate reasons, never todo or message text.
+- **D-25 (2026-10-27)** Telegram offsets are confirmed on the next poll (at-least-once). Handlers use the channel event ID as idempotency key, so redelivery after a crash creates no duplicates.
+- **D-26 (2026-10-27)** Kill switch: "stop" sends its confirmation first, then pauses. While paused the gate denies every action, including replies. "start" resumes, then confirms.
+- **D-27 (2026-10-27)** Button presses are answered with a reply via `telegram.send`, not with a callback acknowledgement. An acknowledgement would be a new executor action (protected path). Repeated presses answer "Already done".
+- **D-28 (2026-10-27)** Until the reader model exists, due dates come from a deterministic parser with an explicit ` @ ` separator (`in 2h`, `18:00`, `morgen 9:00`, `2.11. 14:00`). Unreadable dates are refused, never guessed.
