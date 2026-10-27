@@ -6,9 +6,9 @@ One codebase, one daemon per machine, instances configured outside the repo.
 
 ```
 Watcher ──► Reader ──► Orchestrator ──► Gate ──────────► Executor
-(code)      (model,    (model,          (policy,          (code)
-             no tools)  proposal tools)  classifier,
-                                         operator button)
+(code)      (model,    (model,          (policy, rate     (code)
+             no tools)  proposal tools)  limits, kill
+                                         switch)
    │                         ▲                               │
    └──── Store ◄─────────────┴──────── Audit log ◄───────────┘
            ▲
@@ -35,15 +35,17 @@ Channel → inbox (SQLite) → operator handler → dispatcher. Free text goes t
 
 | Package | Responsibility |
 |---|---|
-| `core` | Types, Zod schemas, state machines for items, actions, todos |
-| `store` | SQLite access, migrations, append-only audit log |
-| `watchers` | Source pollers with cursors; each emits normalized items |
-| `agents` | Role prompts (Markdown) and output schemas: reader, orchestrator, updater, knowledge, dream |
-| `gate` | Policy evaluation, rate limits, budget, classifier, draft-hash approvals (protected) |
-| `executor` | Action implementations (protected) |
-| `channels` | Telegram (long polling, buttons) |
-| `mailbox` | Inter-instance mailbox service and client (Phase 4) |
-| `daemon` | Scheduler, wake catch-up, heartbeat, budget stop, wiring |
+| `core` | Types, state machines for todos and actions, time zones, due-date parsing |
+| `store` | SQLite (`node:sqlite`): todos, reminders, actions with idempotency keys, inbox, observations, cursors, runs with cost, conversation memory, hash-chained append-only audit log |
+| `watchers` | Source clients, read-only: server health script, GitHub, Proton (mail, calendar), iCloud (CalDAV, CardDAV); untrusted-text sanitizer |
+| `agents` | Orchestrator prompt, tool surface and tool loop; mail reader; pricing |
+| `gate` | Policy (`auto`, `ask`, `never`), rate limits, kill switch, draft hash (protected) |
+| `executor` | One narrow handler per action type: `message.send`, `message.ack`, `todo.create`, `todo.update`, `knowledge.write` (protected) |
+| `channels` | Messenger-neutral contract; Telegram adapter (long polling, inline buttons) |
+| `knowledge` | Contract and loader for the operator's knowledge adapter (`docs/knowledge.md`) |
+| `daemon` | Instance loader, inbox, dispatcher, operator handler and commands, monitors, briefings, scheduler, heartbeat, wiring |
+
+Planned: `mailbox` (Phase 4) and a classifier in the gate (Phase 2).
 
 ## State machines
 
@@ -57,9 +59,9 @@ Todo: `open → snoozed → open … → done | dropped`.
 
 ```
 ~/.config/dsptchr/<instance>/
-  instance.yaml  timezone, channel IDs
+  instance.yaml  timezone, channel IDs, briefings, heartbeat, orchestrator
   role.md        role and tone
-  sources.yaml   watchers, intervals, repository allowlist with levels
+  sources.yaml   watchers and their allowlists (hosts, repositories, calendars), knowledge adapter
   policy.yaml    autonomy levels, rate limits, budget
   rules/         learned rules, changed only via approval
   state.db
@@ -72,18 +74,18 @@ Do not depend on a password-manager SSH or secret agent that locks with the scre
 
 | Role | Model | Notes |
 |---|---|---|
-| Reader | Haiku | no tools, structured output |
-| Classifier | Haiku | prompt differs from the orchestrator's |
-| Orchestrator | Sonnet (Messages API, manual tool loop, D-42) | prompt caching for role and rules |
-| Updater | Sonnet, Opus for hard cases | code runs never below Sonnet |
-| Dream | Sonnet via Batch API | nightly, 50 % cheaper |
+| Reader | `claude-haiku-5-5` | one tool-less call per mail, JSON schema output |
+| Orchestrator | `claude-sonnet-5-5`, effort `medium` | Messages API, manual tool loop (D-42); prompt caching for role and rules |
+| Classifier | planned (Phase 2) | prompt differs from the orchestrator's; can only tighten |
+| Updater | planned (Phase 2) | sandboxed agent, never below Sonnet |
+| Dream | planned (Phase 2) | nightly, Batch API |
 
 ## Scheduling
 
 - Watchers every 10–15 minutes (configurable per source).
-- Orchestrator runs batched, at most hourly inside configured hours; urgent items trigger immediately.
+- The orchestrator runs per operator message. Watcher alerts are deterministic; batched orchestrator runs over watcher items are planned.
 - Briefings at configured times. Reminders fire from the scheduler without a model call.
-- On wake, watchers catch up from their cursors; missed briefings run once.
+- On wake, watchers catch up from their cursors; a briefing missed earlier the same day runs once.
 
 ## Inter-instance mailbox (Phase 4)
 

@@ -1,6 +1,6 @@
 # dsptchr
 
-dsptchr (say "dispatcher") is a self-hosted, proactive personal orchestrator built on the Claude Agent SDK. One codebase, one daemon per machine, any number of instances (for example "private" and "work"), each configured outside this repo.
+dsptchr (say "dispatcher") is a self-hosted, proactive personal orchestrator built on Claude models. One codebase, one daemon per machine, any number of instances (for example "private" and "work"), each configured outside this repo.
 
 Read before changing anything:
 
