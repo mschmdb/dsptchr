@@ -67,9 +67,8 @@ describe("phase 1 milestone", () => {
   });
 
   async function pump(): Promise<void> {
-    for (const event of await app.channel.receive()) {
-      await app.handle(event);
-    }
+    app.inbox.accept(await app.channel.receive());
+    await app.inbox.drain();
   }
 
   it("captures a todo, reminds with buttons and completes it", async () => {
@@ -116,6 +115,20 @@ describe("phase 1 milestone", () => {
     writeFileSync(join(home, "test", "policy.yaml"), "actions:\n  message.send:\n    level: ask\n");
     const instance = await loadInstance("test", { home, keychain: { read: async () => TOKEN } });
     await expect(createApp(instance, { fetch: telegram.fetch })).rejects.toThrow(/ask/);
+  });
+
+  it("processes an accepted event after a restart", async () => {
+    telegram.inbox.push([
+      { update_id: 20, message: { message_id: 1, from: { id: OPERATOR }, chat: { id: GROUP }, text: "Buy milk" } },
+    ]);
+    app.inbox.accept(await app.channel.receive());
+    app.close();
+
+    const instance = await loadInstance("test", { home, keychain: { read: async () => TOKEN } });
+    app = await createApp(instance, { fetch: telegram.fetch, now: () => clock.now, pollTimeoutSeconds: 0 });
+    expect(app.store.todos.listActive()).toEqual([]);
+    await app.inbox.drain();
+    expect(app.store.todos.listActive().map((t) => t.text)).toEqual(["Buy milk"]);
   });
 
   it("persists the Telegram offset so restarts do not replay handled updates", async () => {

@@ -27,6 +27,10 @@ Watcher ──► Reader ──► Orchestrator ──► Gate ─────�
 - **AR-8** Channels are adapters. No module outside `channels` knows a messenger.
 - **AR-9** Model authentication is configurable per instance: API key (default, from a dedicated Console workspace with spend limit) or plan login. Switching is a config change.
 
+## Operator input
+
+Channel → inbox (SQLite) → operator handler → dispatcher. The channel confirms events only after the inbox stored them. Handlers run from the inbox with retries; events that keep failing end as `dead` and the operator is told.
+
 ## Packages (pnpm workspace)
 
 | Package | Responsibility |

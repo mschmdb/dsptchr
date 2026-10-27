@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 // Messenger-neutral contract. No module outside `channels` knows a messenger (AR-8).
 
 export interface Button {
@@ -46,3 +48,23 @@ export interface Channel {
 }
 
 export const MAX_BUTTON_DATA_BYTES = 64;
+
+// Validates events read back from persistent storage (the daemon's inbox).
+export const inboundEventSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("text"),
+    id: z.string().min(1),
+    text: z.string(),
+    conversation: z.string().min(1),
+    receivedAt: z.number(),
+  }),
+  z.strictObject({
+    kind: z.literal("button"),
+    id: z.string().min(1),
+    data: z.string(),
+    conversation: z.string().min(1),
+    messageRef: z.string().min(1),
+    callbackRef: z.string().min(1),
+    receivedAt: z.number(),
+  }),
+]) satisfies z.ZodType<InboundEvent>;

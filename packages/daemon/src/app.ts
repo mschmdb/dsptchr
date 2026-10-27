@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { telegramChannel, type Channel, type InboundEvent } from "@dsptchr/channels";
+import { telegramChannel, type Channel } from "@dsptchr/channels";
 import { createExecutor } from "@dsptchr/executor";
 import { parsePolicy } from "@dsptchr/gate";
 import { openStore, type Store } from "@dsptchr/store";
 import { createDispatcher } from "./dispatch.ts";
+import { createInbox, type Inbox } from "./inbox.ts";
 import { InstanceError, type Instance } from "./instance/loader.ts";
 import { createOperatorHandler } from "./operator.ts";
 import { createReminderScheduler } from "./reminders.ts";
@@ -17,10 +18,13 @@ export interface AppOptions {
 export interface App {
   store: Store;
   channel: Channel;
-  handle(event: InboundEvent): Promise<void>;
+  inbox: Inbox;
   tick(): Promise<number>;
   close(): void;
 }
+
+// Handled operator input stays in the inbox this long, then only its ID remains.
+const INBOX_RETENTION_MS = 7 * 86_400_000;
 
 // Wires one instance. Refuses to start without a policy: no policy, no actions.
 export async function createApp(instance: Instance, options: AppOptions = {}): Promise<App> {
@@ -61,12 +65,28 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
   const dispatcher = createDispatcher({ store, executor, policy, now });
   const operator = createOperatorHandler({ store, dispatcher, timeZone: instance.config.timezone, now });
   const scheduler = createReminderScheduler({ store, dispatcher, now });
+  const inbox = createInbox({
+    store,
+    handle: (event) => operator.handle(event),
+    now,
+    onDead: async (entryId) => {
+      await dispatcher.dispatch({
+        type: "message.send",
+        payload: { text: `A message could not be processed and was set aside. Audit log subject: ${entryId}` },
+        idempotencyKey: `inbox:${entryId}:dead`,
+        actor: "daemon",
+      });
+    },
+  });
 
   return {
     store,
     channel,
-    handle: (event) => operator.handle(event),
-    tick: () => scheduler.tick(),
+    inbox,
+    tick: async () => {
+      store.inbox.purgeDone(now() - INBOX_RETENTION_MS);
+      return scheduler.tick();
+    },
     close: () => store.close(),
   };
 }

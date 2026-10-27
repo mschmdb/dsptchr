@@ -1,11 +1,13 @@
 import type { Channel, InboundEvent } from "@dsptchr/channels";
 import { describe, expect, it, vi } from "vitest";
+import type { Inbox } from "../src/inbox.ts";
 import { abortableSleep, runDaemon, type DaemonLog } from "../src/run.ts";
 import { text } from "./support/harness.ts";
 
-function scriptedChannel(batches: (InboundEvent[] | Error)[], controller: AbortController): Channel {
+function scriptedChannel(batches: (InboundEvent[] | Error)[], controller: AbortController, calls?: string[]): Channel {
   return {
     receive: async () => {
+      calls?.push("receive");
       const next = batches.shift();
       if (next === undefined) {
         controller.abort();
@@ -19,53 +21,73 @@ function scriptedChannel(batches: (InboundEvent[] | Error)[], controller: AbortC
   };
 }
 
+function memoryInbox(calls: string[] = [], failAccepts = 0): Inbox & { accepted: string[] } {
+  const accepted: string[] = [];
+  return {
+    accepted,
+    accept: (events) => {
+      calls.push("accept");
+      if (failAccepts-- > 0) throw new Error("database is locked");
+      accepted.push(...events.map((e) => e.id));
+    },
+    drain: async () => {
+      calls.push("drain");
+      return 0;
+    },
+  };
+}
+
 function memoryLog(): DaemonLog & { lines: string[] } {
   const lines: string[] = [];
   return { lines, info: (m) => lines.push(`info ${m}`), error: (m) => lines.push(`error ${m}`) };
 }
 
+const idle = { tick: async () => 0, tickIntervalMs: 999_999 };
+
 describe("runDaemon", () => {
-  it("hands every received event to the handler and stops on abort", async () => {
+  it("stores received events before draining and before the next receive", async () => {
     const controller = new AbortController();
-    const handled: string[] = [];
+    const calls: string[] = [];
+    const inbox = memoryInbox(calls);
     const a = text("a");
-    const b = text("b");
 
     await runDaemon({
-      channel: scriptedChannel([[a], [b]], controller),
-      handle: async (event) => {
-        handled.push(event.id);
-      },
-      tick: async () => 0,
+      channel: scriptedChannel([[a]], controller, calls),
+      inbox,
+      ...idle,
       log: memoryLog(),
       signal: controller.signal,
       sleep: async () => {},
     });
 
-    expect(handled).toEqual([a.id, b.id]);
+    expect(inbox.accepted).toEqual([a.id]);
+    const firstReceive = calls.indexOf("receive");
+    const accept = calls.indexOf("accept");
+    const secondReceive = calls.indexOf("receive", firstReceive + 1);
+    expect(firstReceive).toBeLessThan(accept);
+    expect(accept).toBeLessThan(secondReceive);
+    expect(calls.slice(accept, secondReceive)).toContain("drain");
   });
 
-  it("keeps going when a handler throws", async () => {
+  it("retries storing events instead of receiving (and confirming) the next batch", async () => {
     const controller = new AbortController();
-    const log = memoryLog();
-    const handled: string[] = [];
-    const bad = text("bad");
-    const good = text("good");
+    const calls: string[] = [];
+    const inbox = memoryInbox(calls, 2);
+    const a = text("a");
 
     await runDaemon({
-      channel: scriptedChannel([[bad, good]], controller),
-      handle: async (event) => {
-        if (event.id === bad.id) throw new Error("boom");
-        handled.push(event.id);
-      },
-      tick: async () => 0,
-      log,
+      channel: scriptedChannel([[a]], controller, calls),
+      inbox,
+      ...idle,
+      log: memoryLog(),
       signal: controller.signal,
       sleep: async () => {},
     });
 
-    expect(handled).toEqual([good.id]);
-    expect(log.lines.some((l) => l.startsWith("error") && l.includes("boom"))).toBe(true);
+    const firstReceive = calls.indexOf("receive");
+    const secondReceive = calls.indexOf("receive", firstReceive + 1);
+    expect(calls.slice(firstReceive, secondReceive).filter((c) => c === "accept")).toHaveLength(3);
+    expect(inbox.accepted).toEqual([a.id]);
   });
 
   it("backs off exponentially on receive errors and honours retry-after", async () => {
@@ -75,11 +97,10 @@ describe("runDaemon", () => {
 
     await runDaemon({
       channel: scriptedChannel([new Error("down"), new Error("down"), rateLimited, [], new Error("down")], controller),
-      handle: async () => {},
-      tick: async () => 0,
+      inbox: memoryInbox(),
+      ...idle,
       log: memoryLog(),
       signal: controller.signal,
-      tickIntervalMs: 999_999,
       sleep: async (ms) => {
         if (ms !== 999_999) waits.push(ms);
       },
@@ -88,14 +109,15 @@ describe("runDaemon", () => {
     expect(waits).toEqual([1000, 2000, 7000, 1000]);
   });
 
-  it("runs the scheduler tick on its own interval and survives tick errors", async () => {
+  it("drains the inbox and runs the scheduler on its own interval, surviving errors", async () => {
     const controller = new AbortController();
     let ticks = 0;
+    const calls: string[] = [];
     const log = memoryLog();
 
     await runDaemon({
       channel: { receive: () => new Promise(() => {}), send: async () => ({ conversation: "", messageRef: "" }), acknowledge: async () => {} },
-      handle: async () => {},
+      inbox: memoryInbox(calls),
       tick: async () => {
         ticks++;
         if (ticks === 1) throw new Error("tick failed");
@@ -108,6 +130,7 @@ describe("runDaemon", () => {
     });
 
     expect(ticks).toBe(3);
+    expect(calls.filter((c) => c === "drain")).toHaveLength(3);
     expect(log.lines.some((l) => l.includes("tick failed"))).toBe(true);
   });
 });
@@ -119,25 +142,5 @@ describe("abortableSleep", () => {
 
     await abortableSleep(1, controller.signal);
     expect(spy.mock.calls.map(([type]) => type)).toEqual(["abort"]);
-  });
-});
-
-describe("runDaemon failure reporting", () => {
-  it("reports failed events to onHandlerError", async () => {
-    const controller = new AbortController();
-    const failed: string[] = [];
-    const bad = text("bad");
-    await runDaemon({
-      channel: scriptedChannel([[bad]], controller),
-      handle: async () => {
-        throw new Error("boom");
-      },
-      onHandlerError: (event) => failed.push(event.id),
-      tick: async () => 0,
-      log: memoryLog(),
-      signal: controller.signal,
-      sleep: async () => {},
-    });
-    expect(failed).toEqual([bad.id]);
   });
 });

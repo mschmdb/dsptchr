@@ -1,4 +1,5 @@
 import type { Channel, InboundEvent } from "@dsptchr/channels";
+import type { Inbox } from "./inbox.ts";
 
 export interface DaemonLog {
   info(message: string): void;
@@ -7,14 +8,15 @@ export interface DaemonLog {
 
 export interface RunDaemonOptions {
   channel: Channel;
-  handle(event: InboundEvent): Promise<void>;
-  onHandlerError?: (event: InboundEvent) => void;
+  inbox: Inbox;
   tick(): Promise<number>;
   log: DaemonLog;
   signal: AbortSignal;
   tickIntervalMs?: number;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
+
+type Sleep = NonNullable<RunDaemonOptions["sleep"]>;
 
 const MAX_BACKOFF_MS = 60_000;
 
@@ -23,8 +25,10 @@ export async function runDaemon(options: RunDaemonOptions): Promise<void> {
   await Promise.all([receiveLoop(options, sleep), tickLoop(options, sleep)]);
 }
 
-async function receiveLoop(options: RunDaemonOptions, sleep: NonNullable<RunDaemonOptions["sleep"]>): Promise<void> {
-  const { channel, signal, log } = options;
+const backoff = (failures: number): number => Math.min(MAX_BACKOFF_MS, 1000 * 2 ** (failures - 1));
+
+async function receiveLoop(options: RunDaemonOptions, sleep: Sleep): Promise<void> {
+  const { channel, inbox, signal, log } = options;
   const aborted = new Promise<undefined>((resolve) => signal.addEventListener("abort", () => resolve(undefined), { once: true }));
   let failures = 0;
 
@@ -37,26 +41,48 @@ async function receiveLoop(options: RunDaemonOptions, sleep: NonNullable<RunDaem
       if (signal.aborted) break;
       failures++;
       const retryAfter = (error as { retryAfterSeconds?: unknown }).retryAfterSeconds;
-      const delay =
-        typeof retryAfter === "number" ? retryAfter * 1000 : Math.min(MAX_BACKOFF_MS, 1000 * 2 ** (failures - 1));
+      const delay = typeof retryAfter === "number" ? retryAfter * 1000 : backoff(failures);
       log.error(`receive failed (${describe(error)}), retrying in ${delay} ms`);
       await sleep(delay, signal);
       continue;
     }
-    for (const event of events ?? []) {
-      try {
-        await options.handle(event);
-      } catch (error) {
-        log.error(`handling ${event.kind} event ${event.id} failed: ${describe(error)}`);
-        options.onHandlerError?.(event);
-      }
-    }
+    if (events === undefined || events.length === 0) continue;
+
+    // The channel confirms these events on the next receive. Do not receive again
+    // before they are stored, or a crash would lose them.
+    if (!(await acceptWithRetry(options, events, sleep))) break;
+    await drain(inbox, log);
   }
 }
 
-async function tickLoop(options: RunDaemonOptions, sleep: NonNullable<RunDaemonOptions["sleep"]>): Promise<void> {
+async function acceptWithRetry(options: RunDaemonOptions, events: InboundEvent[], sleep: Sleep): Promise<boolean> {
+  let failures = 0;
+  while (!options.signal.aborted) {
+    try {
+      options.inbox.accept(events);
+      return true;
+    } catch (error) {
+      failures++;
+      const delay = backoff(failures);
+      options.log.error(`storing ${events.length} event(s) failed (${describe(error)}), retrying in ${delay} ms`);
+      await sleep(delay, options.signal);
+    }
+  }
+  return false;
+}
+
+async function drain(inbox: Inbox, log: DaemonLog): Promise<void> {
+  try {
+    await inbox.drain();
+  } catch (error) {
+    log.error(`inbox drain failed: ${describe(error)}`);
+  }
+}
+
+async function tickLoop(options: RunDaemonOptions, sleep: Sleep): Promise<void> {
   const { signal, log } = options;
   while (!signal.aborted) {
+    await drain(options.inbox, log);
     try {
       const sent = await options.tick();
       if (sent > 0) log.info(`sent ${sent} reminder(s)`);
