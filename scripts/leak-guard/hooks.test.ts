@@ -53,6 +53,16 @@ describe.skipIf(!hasGitleaks)("git hooks (end to end)", () => {
     expect(commit("host-zz9.txt", "clean\n", "Add file")).toBe(1);
   });
 
+  it("rejects a pure rename to a denylisted file name", () => {
+    expect(commit("a.txt", "clean\n", "Add file")).toBe(0);
+    git(["mv", "a.txt", "host-zz9.txt"]);
+    const result = spawnSync("git", ["commit", "-q", "-m", "Rename"], {
+      cwd: repo,
+      env: { ...process.env, DSPTCHR_DENYLIST: denylist },
+    });
+    expect(result.status).toBe(1);
+  });
+
   it("rejects a denylisted term in the commit message", () => {
     expect(commit("a.txt", "clean\n", "Deploy to host-zz9")).toBe(1);
   });

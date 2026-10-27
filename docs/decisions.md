@@ -30,3 +30,5 @@ Append-only. Newest at the bottom. Format: ID, date, decision, reason.
 - **D-26 (2026-10-27)** Kill switch: "stop" sends its confirmation first, then pauses. While paused the gate denies every action, including replies. "start" resumes, then confirms.
 - **D-27 (2026-10-27)** Button presses are answered with a reply via `telegram.send`, not with a callback acknowledgement. An acknowledgement would be a new executor action (protected path). Repeated presses answer "Already done".
 - **D-28 (2026-10-27)** Until the reader model exists, due dates come from a deterministic parser with an explicit ` @ ` separator (`in 2h`, `18:00`, `morgen 9:00`, `2.11. 14:00`). Unreadable dates are refused, never guessed.
+- **D-29 (2026-10-27)** Until operator approvals exist (Phase 2), the daemon refuses to start with any `ask` level in the policy. An `ask` action would otherwise wait forever.
+- **D-30 (2026-10-27)** A recovered `approved` action (crash between gate and executor) runs only if the kill switch is off and the current policy still says `auto`. Stranded `proposed` actions go through the gate again.

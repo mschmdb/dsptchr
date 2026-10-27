@@ -29,7 +29,16 @@ async function main(): Promise<number> {
   log.info("started");
   app.store.audit.append({ actor: "daemon", event: "daemon.started" });
   try {
-    await runDaemon({ channel: app.channel, handle: app.handle, tick: app.tick, log, signal: controller.signal });
+    await runDaemon({
+      channel: app.channel,
+      handle: app.handle,
+      // Known gap: the event is lost after the next poll. A durable inbox follows.
+      onHandlerError: (event) =>
+        app.store.audit.append({ actor: "daemon", event: "daemon.handler_failed", data: { eventId: event.id, kind: event.kind } }),
+      tick: app.tick,
+      log,
+      signal: controller.signal,
+    });
   } finally {
     app.store.audit.append({ actor: "daemon", event: "daemon.stopped" });
     app.close();

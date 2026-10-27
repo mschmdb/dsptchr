@@ -57,6 +57,14 @@ describe("kill switch", () => {
     expect(h.sent[0]?.text).toMatch(/paused/i);
   });
 
+  it("pauses immediately even when the confirmation never completes", async () => {
+    const h = setup();
+    h.channel.send = () => new Promise(() => {});
+    void h.handler.handle(text("stop"));
+    await Promise.resolve();
+    expect(h.store.flags.isPaused()).toBe(true);
+  });
+
   it("blocks todo capture while paused and resumes on start", async () => {
     const h = setup();
     await h.handler.handle(text("stop"));

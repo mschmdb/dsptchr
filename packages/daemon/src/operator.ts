@@ -29,9 +29,11 @@ export function createOperatorHandler({ store, dispatcher, timeZone, now }: Oper
   async function handleText(event: Extract<InboundEvent, { kind: "text" }>): Promise<void> {
     const word = event.text.trim().toLowerCase();
     if (STOP_WORDS.has(word)) {
-      // Confirm before pausing: once paused, the gate blocks every message.
-      await reply(event, "Paused. All actions are blocked. Send \"start\" to resume.");
+      // dispatch() passes the gate synchronously before its first await, so the
+      // confirmation is approved before the pause and the pause never waits for the network.
+      const confirmation = reply(event, "Paused. All actions are blocked. Send \"start\" to resume.");
       if (!store.flags.isPaused()) store.flags.setPaused(true, ACTOR);
+      await confirmation;
       return;
     }
     if (START_WORDS.has(word)) {

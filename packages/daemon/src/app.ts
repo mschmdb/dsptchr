@@ -29,6 +29,13 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
     throw new InstanceError(`policy.yaml missing in ${instance.dir}`);
   });
   const policy = parsePolicy(policyText);
+  const askTypes = Object.entries(policy.actions)
+    .filter(([, p]) => p.level === "ask")
+    .map(([type]) => type);
+  if (askTypes.length > 0) {
+    // Operator approvals arrive in Phase 2; until then an ask action would wait forever.
+    throw new InstanceError(`policy.yaml: level "ask" is not supported yet (${askTypes.join(", ")})`);
+  }
   const telegram = instance.config.channels.telegram;
   if (telegram === undefined) {
     throw new InstanceError("instance.yaml: channels.telegram is required");

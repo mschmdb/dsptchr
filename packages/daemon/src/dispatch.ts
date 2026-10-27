@@ -22,6 +22,11 @@ export interface DispatcherDeps {
 
 // The only path from a proposal to an external effect: store -> gate -> executor (AR-4).
 export function createDispatcher({ store, executor, policy, now }: DispatcherDeps): Dispatcher {
+  // An approval left behind by a crash runs only if pause state and current policy still allow it.
+  // The rate limit already counted it at approval time.
+  const mayResume = (type: string): boolean =>
+    !store.flags.isPaused() && Object.hasOwn(policy.actions, type) && policy.actions[type]?.level === "auto";
+
   return {
     async dispatch(input) {
       const { action, created } = store.actions.propose({
@@ -31,8 +36,11 @@ export function createDispatcher({ store, executor, policy, now }: DispatcherDep
         draftHash: draftHash({ type: input.type, payload: input.payload }),
         actor: input.actor,
       });
-      if (!created) {
-        return action.state === "approved" ? executor.execute(action.id) : action;
+      if (!created && action.state === "approved") {
+        return mayResume(action.type) ? executor.execute(action.id) : action;
+      }
+      if (!created && action.state !== "proposed") {
+        return action;
       }
 
       const result = evaluate(

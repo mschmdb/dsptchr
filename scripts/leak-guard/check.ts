@@ -8,6 +8,7 @@ export interface CheckDeps {
   readDenylist: () => string | undefined;
   readMessage: (path: string) => string;
   stagedDiff: () => string;
+  stagedPaths: () => string[];
 }
 
 export interface CheckResult {
@@ -32,9 +33,14 @@ export function runCheck(args: readonly string[], deps: CheckDeps): CheckResult 
     return { exitCode: 0, output: "leak-guard warning: denylist missing or empty, check skipped" };
   }
 
+  // Paths are scanned separately because pure renames carry no content diff.
+  // A path hit reports only its position: the path itself may be the leak.
   const hits: Hit[] =
     mode === "staged"
-      ? addedLinesFromDiff(deps.stagedDiff()).flatMap((input) => findHits(input.text, terms, input.source))
+      ? [
+          ...findHits(deps.stagedPaths().join("\n"), terms, "staged path"),
+          ...addedLinesFromDiff(deps.stagedDiff()).flatMap((input) => findHits(input.text, terms, input.source)),
+        ]
       : findHits(withoutGitComments(deps.readMessage(messagePath ?? "")), terms, "commit message");
 
   if (hits.length === 0) {
@@ -66,6 +72,13 @@ const realDeps: CheckDeps = {
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
     }),
+  stagedPaths: () =>
+    execFileSync("git", ["diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR"], {
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+    })
+      .split("\0")
+      .filter((path) => path !== ""),
 };
 
 if (import.meta.main) {

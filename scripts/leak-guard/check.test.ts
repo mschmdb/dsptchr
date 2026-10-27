@@ -9,6 +9,7 @@ function deps(overrides: Partial<CheckDeps> = {}): CheckDeps {
     readDenylist: () => "host-a\n",
     readMessage: () => "Add feature",
     stagedDiff: () => diffWith("const x = 1;"),
+    stagedPaths: () => ["a.ts"],
     ...overrides,
   };
 }
@@ -22,6 +23,13 @@ describe("runCheck staged", () => {
     const result = runCheck(["staged"], deps({ stagedDiff: () => diffWith("ssh Host-A") }));
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain("a.ts:2");
+    expect(result.output).not.toContain("host-a");
+  });
+
+  it("rejects staged paths with a denylisted term, e.g. pure renames", () => {
+    const result = runCheck(["staged"], deps({ stagedDiff: () => "", stagedPaths: () => ["docs/host-a.md"] }));
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("staged path:1");
     expect(result.output).not.toContain("host-a");
   });
 

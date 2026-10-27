@@ -1,6 +1,6 @@
 import type { Channel, InboundEvent } from "@dsptchr/channels";
-import { describe, expect, it } from "vitest";
-import { runDaemon, type DaemonLog } from "../src/run.ts";
+import { describe, expect, it, vi } from "vitest";
+import { abortableSleep, runDaemon, type DaemonLog } from "../src/run.ts";
 import { text } from "./support/harness.ts";
 
 function scriptedChannel(batches: (InboundEvent[] | Error)[], controller: AbortController): Channel {
@@ -109,5 +109,35 @@ describe("runDaemon", () => {
 
     expect(ticks).toBe(3);
     expect(log.lines.some((l) => l.includes("tick failed"))).toBe(true);
+  });
+});
+
+describe("abortableSleep", () => {
+  it("removes its abort listener after the timer fires", async () => {
+    const controller = new AbortController();
+    const spy = vi.spyOn(controller.signal, "removeEventListener");
+
+    await abortableSleep(1, controller.signal);
+    expect(spy.mock.calls.map(([type]) => type)).toEqual(["abort"]);
+  });
+});
+
+describe("runDaemon failure reporting", () => {
+  it("reports failed events to onHandlerError", async () => {
+    const controller = new AbortController();
+    const failed: string[] = [];
+    const bad = text("bad");
+    await runDaemon({
+      channel: scriptedChannel([[bad]], controller),
+      handle: async () => {
+        throw new Error("boom");
+      },
+      onHandlerError: (event) => failed.push(event.id),
+      tick: async () => 0,
+      log: memoryLog(),
+      signal: controller.signal,
+      sleep: async () => {},
+    });
+    expect(failed).toEqual([bad.id]);
   });
 });

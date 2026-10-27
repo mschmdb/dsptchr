@@ -8,6 +8,7 @@ export interface DaemonLog {
 export interface RunDaemonOptions {
   channel: Channel;
   handle(event: InboundEvent): Promise<void>;
+  onHandlerError?: (event: InboundEvent) => void;
   tick(): Promise<number>;
   log: DaemonLog;
   signal: AbortSignal;
@@ -47,6 +48,7 @@ async function receiveLoop(options: RunDaemonOptions, sleep: NonNullable<RunDaem
         await options.handle(event);
       } catch (error) {
         log.error(`handling ${event.kind} event ${event.id} failed: ${describe(error)}`);
+        options.onHandlerError?.(event);
       }
     }
   }
@@ -69,17 +71,17 @@ function describe(error: unknown): string {
   return error instanceof Error ? `${error.name}: ${error.message}` : "unknown error";
 }
 
-function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+export function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal.aborted) return resolve();
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }

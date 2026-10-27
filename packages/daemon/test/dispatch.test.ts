@@ -1,4 +1,4 @@
-import { parsePolicy } from "@dsptchr/gate";
+import { draftHash, parsePolicy } from "@dsptchr/gate";
 import { describe, expect, it } from "vitest";
 import { harness } from "./support/harness.ts";
 
@@ -63,6 +63,52 @@ describe("dispatcher", () => {
       states.push((await h.dispatcher.dispatch({ type: "telegram.send", payload: { text: `m${i}` }, idempotencyKey: `k${i}`, actor: "x" })).state);
     }
     expect(states).toEqual(["executed", "executed", "denied"]);
+  });
+
+  it("resumes gate evaluation for an action stranded in proposed", async () => {
+    const h = harness();
+    h.store.actions.propose({
+      type: "telegram.send",
+      payload: { text: "hi" },
+      idempotencyKey: "k",
+      draftHash: draftHash({ type: "telegram.send", payload: { text: "hi" } }),
+      actor: "x",
+    });
+    const result = await h.dispatcher.dispatch({ type: "telegram.send", payload: { text: "hi" }, idempotencyKey: "k", actor: "x" });
+    expect(result.state).toBe("executed");
+  });
+
+  it("does not run a recovered approved action while paused", async () => {
+    const h = harness();
+    const { action } = h.store.actions.propose({
+      type: "telegram.send",
+      payload: { text: "hi" },
+      idempotencyKey: "k",
+      draftHash: draftHash({ type: "telegram.send", payload: { text: "hi" } }),
+      actor: "x",
+    });
+    h.store.actions.transition(action.id, "approve", { actor: "gate" });
+    h.store.flags.setPaused(true, "operator");
+
+    const result = await h.dispatcher.dispatch({ type: "telegram.send", payload: { text: "hi" }, idempotencyKey: "k", actor: "x" });
+    expect(result.state).toBe("approved");
+    expect(h.sent).toEqual([]);
+  });
+
+  it("does not run a recovered approved action the policy no longer allows", async () => {
+    const h = harness(parsePolicy("actions:\n  telegram.send:\n    level: never\n"));
+    const { action } = h.store.actions.propose({
+      type: "telegram.send",
+      payload: { text: "hi" },
+      idempotencyKey: "k",
+      draftHash: draftHash({ type: "telegram.send", payload: { text: "hi" } }),
+      actor: "x",
+    });
+    h.store.actions.transition(action.id, "approve", { actor: "gate" });
+
+    const result = await h.dispatcher.dispatch({ type: "telegram.send", payload: { text: "hi" }, idempotencyKey: "k", actor: "x" });
+    expect(result.state).toBe("approved");
+    expect(h.sent).toEqual([]);
   });
 
   it("resumes an approved action left behind by a crash", async () => {

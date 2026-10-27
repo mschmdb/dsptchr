@@ -112,6 +112,12 @@ describe("phase 1 milestone", () => {
     expect(JSON.stringify(app.store.audit.list())).not.toContain(TOKEN);
   });
 
+  it("refuses to start with ask policies until operator approvals exist", async () => {
+    writeFileSync(join(home, "test", "policy.yaml"), "actions:\n  telegram.send:\n    level: ask\n");
+    const instance = await loadInstance("test", { home, keychain: { read: async () => TOKEN } });
+    await expect(createApp(instance, { fetch: telegram.fetch })).rejects.toThrow(/ask/);
+  });
+
   it("persists the Telegram offset so restarts do not replay handled updates", async () => {
     telegram.inbox.push([
       { update_id: 10, message: { message_id: 1, from: { id: OPERATOR }, chat: { id: GROUP }, text: "Buy milk" } },
