@@ -1,6 +1,7 @@
 import type { Button } from "@dsptchr/channels";
 import type { Store } from "@dsptchr/store";
 import { formatDue } from "./format.ts";
+import type { CalendarMonitor } from "./calendar.ts";
 import { GITHUB_SOURCE } from "./github.ts";
 import { HEALTH_SOURCE } from "./health.ts";
 
@@ -15,15 +16,21 @@ const MAX_LINES = 25;
 const MAX_TEXT = 120;
 const COMMAND = /^\/([a-z]+)(?:@\w+)?$/i;
 
-export const HELP = "Commands: /todos, /health, /github, /status. Any other text becomes a todo; add a due date after \" @ \".";
+export const HELP = "Commands: /todos, /calendar, /health, /github, /status. Any other text becomes a todo; add a due date after \" @ \".";
 
 // Fixed, deterministic read-only commands. Free questions need the orchestrator (model).
 export function parseCommand(text: string): string | undefined {
   return COMMAND.exec(text.trim())?.[1]?.toLowerCase();
 }
 
-export function runCommand(name: string, store: Store, timeZone: string): CommandReply {
+export interface CommandSources {
+  calendar?: CalendarMonitor;
+}
+
+export function runCommand(name: string, store: Store, timeZone: string, sources: CommandSources = {}): CommandReply {
   switch (name) {
+    case "calendar":
+      return { text: calendar(sources.calendar) };
     case "todos":
       return todos(store, timeZone);
     case "health":
@@ -67,6 +74,18 @@ function health(store: Store, timeZone: string): string {
   return [`Server health (last check ${formatDue(last, timeZone)})`, ...(open.length === 0 ? ["All clear."] : open)].join(
     "\n",
   );
+}
+
+function calendar(monitor: CalendarMonitor | undefined): string {
+  if (monitor === undefined) return "No calendar configured.";
+  const today = monitor.lines(0);
+  const tomorrow = monitor.lines(1);
+  return [
+    "Today:",
+    ...(today.length === 0 ? ["- nothing"] : today),
+    "Tomorrow:",
+    ...(tomorrow.length === 0 ? ["- nothing"] : tomorrow),
+  ].join("\n");
 }
 
 interface GithubData {

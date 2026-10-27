@@ -99,8 +99,27 @@ export const sourcesSchema = z
       })
       .transform((g) => ({ token: g.token, repos: g.repos, intervalMinutes: g.interval_minutes }))
       .optional(),
+    proton: z
+      .strictObject({
+        binary: z.string().startsWith("/", "must be an absolute path"),
+        profile: z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/),
+        own_addresses: z.array(z.email()).min(1),
+        todo_address: z.email().optional(),
+        calendar_interval_minutes: z.number().int().min(10).max(1440).default(30),
+        mail_interval_minutes: z.number().int().min(10).max(1440).default(15),
+      })
+      .transform((p) => ({
+        binary: p.binary,
+        profile: p.profile,
+        ownAddresses: p.own_addresses,
+        ...(p.todo_address === undefined ? {} : { todoAddress: p.todo_address }),
+        calendarIntervalMinutes: p.calendar_interval_minutes,
+        mailIntervalMinutes: p.mail_interval_minutes,
+      }))
+      .optional(),
   })
   .transform((s) => ({
+    ...(s.proton === undefined ? {} : { proton: s.proton }),
     ...(s.server_health === undefined ? {} : { serverHealth: s.server_health }),
     ...(s.github === undefined ? {} : { github: s.github }),
   }));

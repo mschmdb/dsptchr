@@ -26,6 +26,7 @@ export interface OrchestratorDeps {
   effort: "low" | "medium" | "high";
   dailyBudgetUsd: number;
   role: string;
+  calendar?: { forModel(): unknown[] };
 }
 
 export type OrchestratorOutcome = "handled" | "paused" | "budget_exhausted" | "unavailable";
@@ -94,6 +95,11 @@ export function createOrchestrator(deps: OrchestratorDeps) {
               ...(t.dueAt === undefined ? {} : { due: formatDue(t.dueAt, timeZone) }),
             })),
           });
+        }
+        if (scope === "calendar") {
+          return JSON.stringify(
+            deps.calendar === undefined ? { calendar: "not configured" } : { events: deps.calendar.forModel() },
+          );
         }
         if (scope === "health") {
           // Structured fields only: finding text comes from the servers and stays out of model context.

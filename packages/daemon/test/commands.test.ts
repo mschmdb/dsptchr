@@ -152,6 +152,27 @@ describe("/github", () => {
   });
 });
 
+describe("/calendar", () => {
+  it("lists today and tomorrow from the calendar monitor", async () => {
+    const h = harness();
+    const handler = createOperatorHandler({
+      store: h.store,
+      dispatcher: h.dispatcher,
+      timeZone: TZ,
+      now: () => h.clock.now,
+      sources: { calendar: { lines: (offset: number) => (offset === 0 ? ["- 15:00–16:00 Dentist"] : []) } as never },
+    });
+    await handler.handle(text("/calendar"));
+    expect(h.sent[0]?.text).toBe("Today:\n- 15:00–16:00 Dentist\nTomorrow:\n- nothing");
+  });
+
+  it("says when no calendar is configured", async () => {
+    const h = setup();
+    await h.handler.handle(text("/calendar"));
+    expect(h.sent[0]?.text).toBe("No calendar configured.");
+  });
+});
+
 describe("/status", () => {
   it("summarizes the daemon state", async () => {
     const h = setup();

@@ -16,3 +16,10 @@ github:
     - name: owner/repo-b
       level: observe                 # maintain arrives with the updater (Phase 2)
   interval_minutes: 15
+proton:
+  binary: /path/to/proton-5.1.0      # pinned proton-cli, outside PATH
+  profile: dsptchr                   # session created with: proton account login --profile dsptchr
+  own_addresses: [user@example.com]  # your own addresses; their events are "own"
+  # todo_address: user+todo@example.com
+  calendar_interval_minutes: 30
+  mail_interval_minutes: 15

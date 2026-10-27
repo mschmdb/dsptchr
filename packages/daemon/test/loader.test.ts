@@ -191,6 +191,21 @@ describe("loadInstance", () => {
     await expect(loadInstance("private", { home, keychain: fakeKeychain({}) })).rejects.toThrow(/sources.yaml/);
   });
 
+  it("reads the proton source with defaults", async () => {
+    writeInstance("private", {
+      "instance.yaml": "timezone: UTC\n",
+      "sources.yaml": "proton:\n  binary: /opt/proton\n  profile: dsptchr\n  own_addresses: [me@example.com]\n",
+    });
+    const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });
+    expect(instance.sources.proton).toEqual({
+      binary: "/opt/proton",
+      profile: "dsptchr",
+      ownAddresses: ["me@example.com"],
+      calendarIntervalMinutes: 30,
+      mailIntervalMinutes: 15,
+    });
+  });
+
   it("treats sources.yaml as optional", async () => {
     writeInstance("private", { "instance.yaml": "timezone: UTC\n" });
     const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });

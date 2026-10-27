@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import type { CreateMessage } from "@dsptchr/agents";
 import { telegramChannel, type Channel } from "@dsptchr/channels";
 import { createExecutor } from "@dsptchr/executor";
@@ -6,7 +7,8 @@ import { parsePolicy } from "@dsptchr/gate";
 import { openStore, type Store } from "@dsptchr/store";
 import { createBriefings } from "./briefings.ts";
 import { createDispatcher } from "./dispatch.ts";
-import { fetchGithubLogin, fetchRepoSnapshot, runServerHealth } from "@dsptchr/watchers";
+import { createProtonSource, fetchGithubLogin, fetchRepoSnapshot, runProton, runServerHealth } from "@dsptchr/watchers";
+import { CALENDAR_SOURCE, createCalendarMonitor } from "./calendar.ts";
 import { createGithubMonitor, GITHUB_SOURCE } from "./github.ts";
 import { createHealthMonitor, HEALTH_SOURCE } from "./health.ts";
 import { createHeartbeat } from "./heartbeat.ts";
@@ -86,6 +88,26 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
   });
   const executor = createExecutor({ store, channel });
   const dispatcher = createDispatcher({ store, executor, policy, now });
+  const protonConfig = instance.sources.proton;
+  const proton =
+    protonConfig === undefined
+      ? undefined
+      : createProtonSource({
+          call: (command) =>
+            runProton(command, { binary: protonConfig.binary, profile: protonConfig.profile, home: homedir() }),
+        });
+  const calendar =
+    protonConfig === undefined || proton === undefined
+      ? undefined
+      : createCalendarMonitor({
+          store,
+          fetchEvents: (range) => proton.events(range),
+          ownAddresses: protonConfig.ownAddresses,
+          intervalMs: protonConfig.calendarIntervalMinutes * 60_000,
+          now,
+          timeZone: instance.config.timezone,
+        });
+
   const orchestratorConfig = instance.config.orchestrator;
   const orchestrator =
     orchestratorConfig === undefined
@@ -101,6 +123,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
           effort: orchestratorConfig.effort,
           dailyBudgetUsd: orchestratorConfig.dailyBudgetUsd,
           role: instance.role,
+          ...(calendar === undefined ? {} : { calendar }),
         });
   const operator = createOperatorHandler({
     store,
@@ -108,6 +131,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
     timeZone: instance.config.timezone,
     now,
     ...(orchestrator === undefined ? {} : { orchestrator }),
+    sources: calendar === undefined ? {} : { calendar },
   });
   const scheduler = createReminderScheduler({ store, dispatcher, now });
   const briefings = createBriefings({
@@ -119,6 +143,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
     extras: () => {
       const findings = store.observations.listOpen(HEALTH_SOURCE).length;
       return [
+        ...(calendar?.today() ?? []),
         ...(findings === 0 ? [] : [`Server health: ${findings} open ${findings === 1 ? "finding" : "findings"} (/health).`]),
         ...(github?.summary() ?? []),
       ];
@@ -205,6 +230,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
       store.orchestratorEvents.purgeBefore(now() - CONVERSATION_RETENTION_MS);
       startWatcher(HEALTH_SOURCE, health);
       startWatcher(GITHUB_SOURCE, github);
+      startWatcher(CALENDAR_SOURCE, calendar);
       const sent = (await scheduler.tick()) + (await briefings.tick());
       // Only a completed tick counts as alive; a throwing tick skips the beat.
       const beat = await heartbeat?.beat(store.flags.isPaused() ? "paused" : "ok");

@@ -3,7 +3,7 @@ import { parseDue, splitTodoInput } from "@dsptchr/core";
 import type { Store, StoredAction } from "@dsptchr/store";
 import type { Dispatcher } from "./dispatch.ts";
 import type { OrchestratorOutcome } from "./orchestrator.ts";
-import { parseCommand, runCommand } from "./commands.ts";
+import { parseCommand, runCommand, type CommandSources } from "./commands.ts";
 import { formatDue } from "./format.ts";
 
 export interface OperatorHandlerDeps {
@@ -13,6 +13,7 @@ export interface OperatorHandlerDeps {
   now: () => number;
   // Optional model-backed handling of free text; without it every free text is a todo.
   orchestrator?: { handle(event: Extract<InboundEvent, { kind: "text" }>): Promise<OrchestratorOutcome> };
+  sources?: CommandSources;
 }
 
 const FALLBACK_NOTES: Partial<Record<OrchestratorOutcome, string>> = {
@@ -44,7 +45,7 @@ function shorten(text: string): string {
 }
 
 // Handles operator input from any channel. Every effect goes through the dispatcher.
-export function createOperatorHandler({ store, dispatcher, timeZone, now, orchestrator }: OperatorHandlerDeps) {
+export function createOperatorHandler({ store, dispatcher, timeZone, now, orchestrator, sources }: OperatorHandlerDeps) {
   const reply = async (event: InboundEvent, text: string) =>
     ensureNotFailed(
       await dispatcher.dispatch({
@@ -73,7 +74,7 @@ export function createOperatorHandler({ store, dispatcher, timeZone, now, orches
 
     const command = parseCommand(event.text);
     if (command !== undefined || event.text.trim().startsWith("/")) {
-      const result = runCommand(command ?? "", store, timeZone);
+      const result = runCommand(command ?? "", store, timeZone, sources);
       ensureNotFailed(
         await dispatcher.dispatch({
           type: "message.send",
