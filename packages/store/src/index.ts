@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { actionRepo } from "./actions.ts";
 import { auditLog } from "./audit.ts";
 import { openDb } from "./db.ts";
@@ -42,6 +43,11 @@ export function openStore(options: StoreOptions) {
     runs: runRepo(db, audit, now),
     orchestratorEvents: orchestratorEventRepo(db, now),
     transaction: <T>(fn: () => T): T => db.transaction(fn),
+    // Consistent snapshot of the whole database; refuses to overwrite an existing file.
+    backup: (target: string): void => {
+      if (existsSync(target)) throw new Error("backup target already exists");
+      db.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
+    },
     // Test hook for asserting database-level guarantees. Not for application code.
     unsafeExec: (sql: string): void => db.exec(sql),
     close: (): void => db.close(),
