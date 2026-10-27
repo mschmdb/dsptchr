@@ -121,6 +121,25 @@ describe("knowledge.write", () => {
     expect(writes).toEqual([{ ...payload, message: "dsptchr: write notes/topic.md" }]);
   });
 
+  it("keeps the commit message short for long paths", async () => {
+    const messages: string[] = [];
+    const { channel } = fakeChannel();
+    const executor = createExecutor({
+      store,
+      channel,
+      knowledge: {
+        write: async (request) => {
+          messages.push(request.message);
+          return "{}";
+        },
+      },
+    });
+    const path = `notes/${"a".repeat(180)}.md`;
+    await executor.execute(approved("knowledge.write", { path, content: "x", expected: "new", append: false }).id);
+    expect(messages[0]?.length).toBeLessThanOrEqual(120);
+    expect(messages[0]).toMatch(/^dsptchr: write …a+\.md$/);
+  });
+
   it("fails without a configured knowledge client", async () => {
     const { executor } = setup();
     const result = await executor.execute(approved("knowledge.write", { path: "notes/a.md", content: "x", expected: "new", append: false }).id);

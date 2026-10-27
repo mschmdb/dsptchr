@@ -53,7 +53,9 @@ export function createExecutor({ store, channel, knowledge }: ExecutorDeps): Exe
 
     "knowledge.write": remote(knowledgeWriteSchema, async (payload) => {
       if (knowledge === undefined) throw new Error("knowledge not configured");
-      const output = await knowledge.write({ ...payload, message: `dsptchr: write ${payload.path}` });
+      // Commit messages stay within 120 characters; long paths keep their meaningful end.
+      const shown = payload.path.length > 100 ? `…${payload.path.slice(-99)}` : payload.path;
+      const output = await knowledge.write({ ...payload, message: `dsptchr: write ${shown}` });
       let revision: unknown;
       try {
         revision = (JSON.parse(output) as { revision?: unknown }).revision;

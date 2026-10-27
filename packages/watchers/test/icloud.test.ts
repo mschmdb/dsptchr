@@ -274,6 +274,37 @@ describe("iCloud hardening", () => {
     expect(november).toEqual([]);
   });
 
+  it("applies a this-and-future exception to all later occurrences", async () => {
+    const split = ics(
+      [
+        "BEGIN:VEVENT",
+        "UID:s",
+        "DTSTART:20261001T080000Z",
+        "DTEND:20261001T090000Z",
+        "RRULE:FREQ=WEEKLY",
+        "SUMMARY:Old time",
+        "END:VEVENT",
+        "BEGIN:VEVENT",
+        "UID:s",
+        "RECURRENCE-ID;RANGE=THISANDFUTURE:20261015T080000Z",
+        "DTSTART:20261015T100000Z",
+        "DTEND:20261015T110000Z",
+        "SUMMARY:New time",
+        "END:VEVENT",
+      ].join("\r\n"),
+    );
+    const events = await sourceWith(serverWith([split]) as typeof globalThis.fetch).events(["Personal"], {
+      start: Date.parse("2026-10-07T00:00:00Z"),
+      end: Date.parse("2026-10-30T00:00:00Z"),
+    });
+    expect(events.map((e) => [new Date(e.start).toISOString(), e.title])).toEqual([
+      ["2026-10-08T08:00:00.000Z", "Old time"],
+      ["2026-10-15T10:00:00.000Z", "New time"],
+      ["2026-10-22T10:00:00.000Z", "New time"],
+      ["2026-10-29T10:00:00.000Z", "New time"],
+    ]);
+  });
+
   it("keeps seconds of floating times", async () => {
     const floating = ics(["BEGIN:VEVENT", "UID:f", "DTSTART:20261028T090045", "DTEND:20261028T090145", "SUMMARY:Short", "END:VEVENT"].join("\r\n"));
     const events = await sourceWith(serverWith([floating]) as typeof globalThis.fetch).events(["Personal"], {

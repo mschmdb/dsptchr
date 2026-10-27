@@ -138,6 +138,16 @@ describe("mail cursor", () => {
     expect(h.store.observations.listOpen(MAIL_SOURCE)).toHaveLength(1);
   });
 
+  it("keeps the backlog notice pending until it is delivered", async () => {
+    const h = setup();
+    await h.run([]);
+    h.failSends.value = true;
+    await h.run([h.mail(summary("m1", -1))], false);
+    h.failSends.value = false;
+    await h.run([]);
+    expect(h.sent.filter((m) => m.text.includes("older mail"))).toHaveLength(1);
+  });
+
   it("moves on after an incomplete listing and tells the operator once", async () => {
     const h = setup();
     await h.run([]);

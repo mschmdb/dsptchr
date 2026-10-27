@@ -148,6 +148,11 @@ export function createICloudSource(options: ICloudOptions) {
     for (const master of vevents.filter((e) => !e.isRecurrenceException())) {
       const exceptions = vevents.filter((x) => x.isRecurrenceException() && x.uid === master.uid);
       const exceptionIds = new Set(exceptions.map((x) => toMillis(x.recurrenceId)));
+      // RANGE=THISANDFUTURE: the exception's shift and details apply to every later occurrence too.
+      const futureRanges = exceptions
+        .filter((x) => String(x.component.getFirstProperty("recurrence-id")?.getParameter("range") ?? "").toUpperCase() === "THISANDFUTURE")
+        .map((x) => ({ from: toMillis(x.recurrenceId), shift: toMillis(x.startDate) - toMillis(x.recurrenceId), exception: x }))
+        .sort((a, b) => a.from - b.from);
       const masterOrganizer = organizerOf(master.component);
 
       // Exceptions count by their own (possibly moved) dates.
@@ -161,11 +166,15 @@ export function createICloudSource(options: ICloudOptions) {
       const iterator = master.iterator();
       for (let i = 0, next = iterator.next(); next !== undefined && next !== null && i < MAX_STEPS; i++, next = iterator.next()) {
         const occurrence = toMillis(next);
-        if (occurrence >= range.end) break;
         if (exceptionIds.has(occurrence)) continue;
-        const end = next.clone();
-        end.addDuration(master.duration);
-        push(next, end, master.component, "", `${master.uid}@${utc(occurrence)}`);
+        const future = futureRanges.filter((f) => f.from < occurrence).at(-1);
+        if ((future === undefined ? occurrence : occurrence + future.shift) >= range.end && occurrence >= range.end) break;
+        const start = next.clone();
+        if (future !== undefined) start.addDuration(ICAL.Duration.fromSeconds(future.shift / 1000));
+        const end = start.clone();
+        end.addDuration(future === undefined ? master.duration : future.exception.duration);
+        const component = future === undefined ? master.component : future.exception.component;
+        push(start, end, component, masterOrganizer, `${master.uid}@${utc(occurrence)}`);
       }
     }
     return out;

@@ -128,18 +128,21 @@ export function createMailMonitor(deps: MailMonitorDeps) {
       const lines: AlertLine[] = [];
       let latest = since;
       // A listing cut short by the page limit means a large backlog. Waiting would refetch the same
-      // newest pages forever, so the run continues and the operator hears once that older mail was skipped.
+      // newest pages forever, so the run continues; the operator hears once per backlog that older
+      // mail was skipped, and that notice stays pending until it is delivered.
       let allHandled = true;
-      if (!listing.complete && cursors.get("backlog_noted") !== "1") {
+      const backlog = cursors.get("backlog") ?? "none";
+      if (!listing.complete && backlog === "none") cursors.set("backlog", "pending");
+      if (listing.complete && backlog === "sent") cursors.set("backlog", "none");
+      if (cursors.get("backlog") === "pending") {
         const notice = await dispatcher.dispatch({
           type: "message.send",
           payload: { text: "Mail backlog too large to read at once; some older mail was skipped. Please check your inbox." },
           idempotencyKey: `${SOURCE}:backlog:${now()}`,
           actor: ACTOR,
         });
-        if (notice.state === "executed") cursors.set("backlog_noted", "1");
+        if (notice.state === "executed") cursors.set("backlog", "sent");
       }
-      if (listing.complete) cursors.set("backlog_noted", "0");
       for (const mail of listing.mails) {
         if (store.observations.get(SOURCE, mail.id) !== undefined) {
           latest = Math.max(latest, mail.time);
