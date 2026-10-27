@@ -249,6 +249,44 @@ describe("actions", () => {
   });
 });
 
+describe("actions: draft hash and counting", () => {
+  it("stores the draft hash given at proposal time", () => {
+    const { store } = testStore();
+    const { action } = store.actions.propose({
+      type: "t.x",
+      payload: {},
+      idempotencyKey: "k",
+      draftHash: "abc",
+      actor: "system",
+    });
+    expect(action.draftHash).toBe("abc");
+  });
+
+  it("counts gate-approved actions of a type since a point in time", () => {
+    const { store, clock } = testStore();
+    const make = (key: string, type = "t.x") =>
+      store.actions.propose({ type, payload: {}, idempotencyKey: key, actor: "system" }).action;
+
+    const old = make("old");
+    store.actions.transition(old.id, "approve", { actor: "gate" });
+    clock.now += 10_000;
+    const executed = make("a");
+    store.actions.transition(executed.id, "approve", { actor: "gate" });
+    store.actions.transition(executed.id, "succeed", { actor: "executor" });
+    const failed = make("b");
+    store.actions.transition(failed.id, "approve", { actor: "gate" });
+    store.actions.transition(failed.id, "fail", { actor: "executor" });
+    const denied = make("c");
+    store.actions.transition(denied.id, "deny", { actor: "gate" });
+    make("d");
+    const other = make("e", "t.y");
+    store.actions.transition(other.id, "approve", { actor: "gate" });
+
+    expect(store.actions.countApprovedSince("t.x", T0 + 5_000)).toBe(2);
+    expect(store.actions.countApprovedSince("t.x", T0)).toBe(3);
+  });
+});
+
 describe("persistence", () => {
   it("keeps data and migrations across reopen", () => {
     const dir = mkdtempSync(join(tmpdir(), "dsptchr-store-"));

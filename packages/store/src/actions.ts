@@ -8,6 +8,7 @@ export interface StoredAction {
   payload: unknown;
   state: ActionState;
   idempotencyKey: string;
+  draftHash: string | undefined;
   retries: number;
   result: unknown;
   createdAt: number;
@@ -18,6 +19,7 @@ export interface ProposeAction {
   type: string;
   payload: unknown;
   idempotencyKey: string;
+  draftHash?: string;
   actor: string;
 }
 
@@ -44,13 +46,30 @@ export function actionRepo(db: Db, audit: AuditLog, now: () => number, newId: ()
         const id = newId();
         const at = now();
         db.run(
-          `INSERT INTO actions (id, type, payload_json, state, idempotency_key, created_at, updated_at)
-           VALUES (:id, :type, :payload, 'proposed', :key, :at, :at)`,
-          { id, type: input.type, payload: JSON.stringify(input.payload), key: input.idempotencyKey, at },
+          `INSERT INTO actions (id, type, payload_json, state, idempotency_key, draft_hash, created_at, updated_at)
+           VALUES (:id, :type, :payload, 'proposed', :key, :draftHash, :at, :at)`,
+          {
+            id,
+            type: input.type,
+            payload: JSON.stringify(input.payload),
+            key: input.idempotencyKey,
+            draftHash: input.draftHash,
+            at,
+          },
         );
         audit.append({ actor: input.actor, event: "action.proposed", subject: id, data: { type: input.type } });
         return { action: get(id) as StoredAction, created: true };
       });
+    },
+
+    // Counts actions the gate let through (approved, executed or failed) for rate limits.
+    countApprovedSince(type: string, since: number): number {
+      const row = db.get(
+        `SELECT COUNT(*) AS n FROM actions
+         WHERE type = :type AND created_at >= :since AND state IN ('approved', 'executed', 'failed')`,
+        { type, since },
+      );
+      return Number(row?.["n"] ?? 0);
     },
 
     transition(id: string, event: ActionEvent, options: { actor: string; result?: unknown }): StoredAction {
@@ -95,6 +114,7 @@ function toAction(row: Row): StoredAction {
     payload: JSON.parse(String(row["payload_json"])) as unknown,
     state: row["state"] as ActionState,
     idempotencyKey: String(row["idempotency_key"]),
+    draftHash: (row["draft_hash"] as string | null) ?? undefined,
     retries: Number(row["retries"]),
     result: result === null ? undefined : (JSON.parse(result) as unknown),
     createdAt: Number(row["created_at"]),

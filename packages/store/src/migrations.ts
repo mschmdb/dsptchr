@@ -60,4 +60,8 @@ export const MIGRATIONS: readonly string[] = [
     value TEXT NOT NULL
   );
   `,
+  `
+  ALTER TABLE actions ADD COLUMN draft_hash TEXT;
+  CREATE INDEX actions_type_created ON actions(type, created_at);
+  `,
 ];
