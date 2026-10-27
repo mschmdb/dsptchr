@@ -1,0 +1,3 @@
+#!/bin/sh
+set -e
+node "$(dirname "$0")/../scripts/leak-guard/check.ts" message "$1"
