@@ -53,6 +53,7 @@ Todo: `open → snoozed → open … → done | dropped`.
 
 ```
 ~/.config/dsptchr/<instance>/
+  instance.yaml  timezone, channel IDs
   role.md        role and tone
   sources.yaml   watchers, intervals, repository allowlist with levels
   policy.yaml    autonomy levels, rate limits, budget

@@ -1,0 +1,7 @@
+# Copy to ~/.config/dsptchr/private/instance.yaml and replace the placeholders.
+timezone: Europe/Berlin
+channels:
+  telegram:
+    operator_user_id: 123456789      # your Telegram user ID
+    group_id: -1001234567890         # the forum group the bots live in
+    bot_token: telegram_bot_token    # name of an entry in secrets.yaml
