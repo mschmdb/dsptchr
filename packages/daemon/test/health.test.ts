@@ -43,7 +43,8 @@ describe("health monitor", () => {
       findings: [crit("host-a:disk", "host-a", "Disk 95% full"), warn("host-b:mem", "host-b", "Memory 85%"), info("host-a:reboot", "host-a", "Reboot")],
       evaluatedHosts: hosts,
     });
-    expect(h.sent).toEqual([{ text: "Server health\n- CRIT host-a: Disk 95% full\n- WARN host-b: Memory 85%" }]);
+    expect(h.sent[0]?.text).toBe("Server health\n1. CRIT host-a: Disk 95% full\n2. WARN host-b: Memory 85%");
+    expect(h.sent[0]?.buttons).toHaveLength(2);
   });
 
   it("stays quiet when nothing changed", async () => {
@@ -60,7 +61,7 @@ describe("health monitor", () => {
     await h.run({ findings: [warn("host-b:mem", "host-b", "Memory 85%"), warn("host-a:load", "host-a", "Load 9")], evaluatedHosts: hosts });
     h.later();
     await h.run({ findings: [crit("host-b:mem", "host-b", "Memory 96%")], evaluatedHosts: hosts });
-    expect(h.sent.at(-1)?.text).toBe("Server health\n- CRIT host-b: Memory 96% (was warn)\n- resolved: host-a:load");
+    expect(h.sent.at(-1)?.text).toBe("Server health\n1. CRIT host-b: Memory 96% (was warn)\n2. resolved: host-a:load");
   });
 
   it("does not resolve findings of hosts the check skipped", async () => {
@@ -133,7 +134,7 @@ describe("health monitor", () => {
 
     expect(h.sent.length).toBeGreaterThan(1);
     expect(h.sent.every((m) => m.text.length <= 4096)).toBe(true);
-    expect(h.sent.flatMap((m) => m.text.split("\n").filter((l) => l.startsWith("- ")))).toHaveLength(60);
+    expect(h.sent.flatMap((m) => m.text.split("\n").filter((l) => /^\d+\. /.test(l)))).toHaveLength(60);
     expect(h.store.observations.listOpen("server-health")).toHaveLength(60);
   });
 

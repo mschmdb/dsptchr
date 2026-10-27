@@ -109,7 +109,17 @@ export function createMailMonitor(deps: MailMonitorDeps) {
       store.observations.observe({ source: SOURCE, externalId: message.id, version: reading.category, data });
     };
     if (reading.urgency === "now" && WORTH_READING.has(reading.category)) {
-      return { text: `- ${data.from}: ${data.subject}${data.summary === "" ? "" : `\n  ${data.summary}`}`, apply: observe };
+      const domain = (message.fromAddress.split("@")[1] ?? "").toLowerCase().replace(/[^a-z0-9.-]/g, "").slice(0, 100);
+      return {
+        text: `- ${data.from}: ${data.subject}${data.summary === "" ? "" : `\n  ${data.summary}`}`,
+        apply: observe,
+        feedback: {
+          source: "mail",
+          externalId: message.id,
+          features: { source: "mail", category: reading.category, domain },
+          label: `${data.from}: ${data.subject}`,
+        },
+      };
     }
     observe();
     return undefined;

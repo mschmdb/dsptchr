@@ -91,6 +91,12 @@ export function createGithubMonitor(deps: GithubMonitorDeps) {
         lines.push({
           text: withLink(`- ${label} ${short(repo)}#${item.number}: ${data.title}`, safeUrl(item.url)),
           apply: observe,
+          feedback: {
+            source: "github",
+            externalId,
+            features: { source: "github", repo, kind, author: item.author },
+            label: `${label} ${short(repo)}#${item.number}`,
+          },
         });
       } else {
         observe();
@@ -114,7 +120,11 @@ export function createGithubMonitor(deps: GithubMonitorDeps) {
       const existing = store.observations.get(SOURCE, externalId);
       const was = existing === undefined || existing.state === "resolved" ? undefined : existing.version;
       if (version === "red" && was !== "red") {
-        lines.push({ text: withLink(`- CI red: ${short(repo)} ${data.workflow}`, safeUrl(run.url)), apply: observe });
+        lines.push({
+          text: withLink(`- CI red: ${short(repo)} ${data.workflow}`, safeUrl(run.url)),
+          apply: observe,
+          feedback: { source: "github", externalId, features: { source: "github", repo, kind: "ci" }, label: `CI red: ${short(repo)}` },
+        });
       } else if (version === "green" && was === "red") {
         lines.push({ text: `- CI green again: ${short(repo)} ${data.workflow}`, apply: observe });
       } else {

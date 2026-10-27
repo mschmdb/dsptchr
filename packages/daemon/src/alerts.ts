@@ -1,4 +1,5 @@
-import type { Store } from "@dsptchr/store";
+import type { Button } from "@dsptchr/channels";
+import type { Features, Store } from "@dsptchr/store";
 import type { Dispatcher } from "./dispatch.ts";
 import { formatDue } from "./format.ts";
 
@@ -8,7 +9,12 @@ export interface AlertLine {
   text: string;
   // Records the change; runs only after the operator was told.
   apply(): void;
+  // Present when the operator can rate this item; muted items are not sent at all.
+  feedback?: { source: string; externalId: string; features: Features; label: string };
 }
+
+// One button row per item; Telegram allows a handful of rows before it gets unwieldy.
+const MAX_ITEMS_PER_MESSAGE = 8;
 
 const ACTOR = "watcher";
 // Stays well below the 4,096 characters a Telegram message can hold.
@@ -85,12 +91,37 @@ export async function sendAlertLines(
   store: Store,
   options: { title: string; lines: AlertLine[]; keyBase: string },
 ): Promise<boolean> {
-  const parts = chunk(options.lines);
+  const withFeedback = options.lines.some((l) => l.feedback !== undefined);
+  // Muted items count as handled: recorded, never shown.
+  const muted = options.lines.filter((l) => l.feedback !== undefined && store.rules.mutes(l.feedback.features));
+  if (muted.length > 0) store.transaction(() => muted.forEach((l) => l.apply()));
+  const lines = options.lines.filter((l) => !muted.includes(l));
+
+  const parts = chunk(lines, withFeedback ? MAX_ITEMS_PER_MESSAGE : Number.POSITIVE_INFINITY);
+  let number = 0;
   for (const [index, part] of parts.entries()) {
     const title = parts.length === 1 ? options.title : `${options.title} (${index + 1}/${parts.length})`;
+    const texts: string[] = [];
+    const buttons: Button[][] = [];
+    for (const line of part) {
+      if (!withFeedback) {
+        texts.push(line.text);
+        continue;
+      }
+      number++;
+      texts.push(line.text.replace(/^- /, `${number}. `));
+      if (line.feedback !== undefined) {
+        const { ref } = store.feedback.register(line.feedback);
+        buttons.push([
+          { label: `${number} 👍`, data: `fb:${ref}:r` },
+          { label: `${number} 👎`, data: `fb:${ref}:i` },
+          { label: `${number} 🔕`, data: `fb:${ref}:m` },
+        ]);
+      }
+    }
     const action = await dispatcher.dispatch({
       type: "message.send",
-      payload: { text: [title, ...part.map((l) => l.text)].join("\n") },
+      payload: { text: [title, ...texts].join("\n"), ...(buttons.length === 0 ? {} : { buttons }) },
       idempotencyKey: `${options.keyBase}:${index}`,
       actor: ACTOR,
     });
@@ -100,12 +131,12 @@ export async function sendAlertLines(
   return true;
 }
 
-function chunk(lines: AlertLine[]): AlertLine[][] {
+function chunk(lines: AlertLine[], maxItems: number): AlertLine[][] {
   const parts: AlertLine[][] = [];
   let current: AlertLine[] = [];
   let size = 0;
   for (const line of lines) {
-    if (current.length > 0 && size + line.text.length + 1 > MAX_MESSAGE) {
+    if (current.length > 0 && (size + line.text.length + 1 > MAX_MESSAGE || current.length >= maxItems)) {
       parts.push(current);
       current = [];
       size = 0;

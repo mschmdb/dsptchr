@@ -24,6 +24,8 @@ const FALLBACK_NOTES: Partial<Record<OrchestratorOutcome, string>> = {
 const STOP_WORDS = new Set(["stop", "stopp"]);
 const START_WORDS = new Set(["start", "resume", "weiter"]);
 const BUTTON = /^todo:(done|drop|hour|tomorrow):([^:]+)$/;
+const FEEDBACK_BUTTON = /^fb:([a-z0-9]{1,16}):([rim])$/;
+const RULE_BUTTON = /^rule:([^:]{1,64}):(on|off)$/;
 const ACTOR = "operator";
 const MAX_NOTE = 120;
 
@@ -38,6 +40,22 @@ function ensureNotFailed(action: StoredAction): StoredAction {
     throw new ActionFailedError(`action ${action.type} failed`);
   }
   return action;
+}
+
+// The narrowest stable feature set to mute, and how to say it.
+function muteRule(source: string, features: Record<string, string>): { match: Record<string, string>; description: string } {
+  const pick = (keys: string[]): Record<string, string> =>
+    Object.fromEntries(keys.filter((k) => features[k] !== undefined).map((k) => [k, features[k] as string]));
+  if (source === "mail" && features["domain"] !== undefined) {
+    return { match: pick(["source", "domain"]), description: `mail from ${features["domain"]}` };
+  }
+  if (source === "github") {
+    return { match: pick(["source", "repo", "kind", "author"]), description: `${features["kind"] ?? "items"} in ${features["repo"] ?? "this repository"}` };
+  }
+  if (source === "health") {
+    return { match: pick(["source", "host", "check"]), description: `${features["check"] ?? "this check"} on ${features["host"] ?? "this host"}` };
+  }
+  return { match: features, description: "items like this one" };
 }
 
 function shorten(text: string): string {
@@ -140,7 +158,54 @@ export function createOperatorHandler({ store, dispatcher, timeZone, now, orches
       }),
     );
 
+  async function handleFeedback(event: Extract<InboundEvent, { kind: "button" }>, ref: string, verdict: string): Promise<void> {
+    if (store.feedback.item(ref) === undefined) {
+      await acknowledge(event, "Item no longer known");
+      return;
+    }
+    if (verdict !== "m") {
+      store.feedback.record(ref, verdict === "r" ? "relevant" : "irrelevant");
+      await acknowledge(event, verdict === "r" ? "Noted: relevant" : "Noted: not relevant");
+      return;
+    }
+    const item = store.feedback.record(ref, "mute");
+    const { match, description } = muteRule(item.source, item.features);
+    const rule = store.rules.propose({ match, origin: "operator" });
+    await acknowledge(event, "Rule proposed");
+    ensureNotFailed(
+      await dispatcher.dispatch({
+        type: "message.send",
+        payload: {
+          text: `Never notify again: ${description}?`,
+          conversation: event.conversation,
+          buttons: [
+            [
+              { label: "Yes, mute", data: `rule:${rule.id}:on` },
+              { label: "No", data: `rule:${rule.id}:off` },
+            ],
+          ],
+        },
+        idempotencyKey: `${event.id}:rule`,
+        actor: ACTOR,
+      }),
+    );
+  }
+
+  async function handleRule(event: Extract<InboundEvent, { kind: "button" }>, id: string, decision: string): Promise<void> {
+    const rule = store.rules.get(id);
+    if (rule === undefined || rule.state !== "proposed") {
+      await acknowledge(event, "Rule already decided");
+      return;
+    }
+    store.rules.decide(id, decision === "on" ? "active" : "rejected", ACTOR);
+    await acknowledge(event, decision === "on" ? "Rule active" : "Rule dropped");
+  }
+
   async function handleButton(event: Extract<InboundEvent, { kind: "button" }>): Promise<void> {
+    const feedback = FEEDBACK_BUTTON.exec(event.data);
+    if (feedback !== null) return handleFeedback(event, feedback[1] ?? "", feedback[2] ?? "");
+    const ruleDecision = RULE_BUTTON.exec(event.data);
+    if (ruleDecision !== null) return handleRule(event, ruleDecision[1] ?? "", ruleDecision[2] ?? "");
     const match = BUTTON.exec(event.data);
     if (match === null) {
       store.audit.append({ actor: ACTOR, event: "operator.unknown_button" });

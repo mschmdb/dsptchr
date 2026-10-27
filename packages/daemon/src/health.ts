@@ -56,10 +56,16 @@ export function createHealthMonitor({
           data: dataOf(finding),
         });
       };
+      const feedback = {
+        source: "health",
+        externalId: finding.key,
+        features: { source: "health", host: dataOf(finding).host, check: checkName(finding.key) },
+        label: line(finding).slice(2),
+      };
       if (existing === undefined || existing.state === "resolved") {
-        lines.push({ text: line(finding), apply: observe });
+        lines.push({ text: line(finding), apply: observe, feedback });
       } else if (existing.version !== finding.severity) {
-        lines.push({ text: `${line(finding)} (was ${existing.version})`, apply: observe });
+        lines.push({ text: `${line(finding)} (was ${existing.version})`, apply: observe, feedback });
       } else {
         observe();
       }
@@ -101,4 +107,10 @@ function dataOf(finding: HealthFinding): { host: string; text: string } {
 function line(finding: HealthFinding): string {
   const { host, text } = dataOf(finding);
   return `- ${finding.severity.toUpperCase()} ${host}: ${text}`;
+}
+
+// Rule suffix of a finding key in a fixed vocabulary, for feedback and mute rules.
+function checkName(key: string): string {
+  const last = key.split(":").at(-1) ?? "";
+  return /^[a-z_]{1,24}$/.test(last) ? last : "other";
 }

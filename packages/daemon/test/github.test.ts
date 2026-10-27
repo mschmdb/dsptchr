@@ -77,19 +77,19 @@ describe("github monitor", () => {
         ci: [ci(1, "failure"), ci(2, "success", "Deploy")],
       }),
     });
-    expect(h.sent).toEqual([
-      {
-        text: [
-          "GitHub",
-          "- New PR repo-a#7: Fix login",
-          "  https://github.com/owner-a/repo-a/issues/7",
-          "- New issue repo-a#3: Crash on start",
-          "  https://github.com/owner-a/repo-a/issues/3",
-          "- CI red: repo-a CI",
-          "  https://github.com/owner-a/repo-a/actions/runs/1",
-        ].join("\n"),
-      },
-    ]);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]?.text).toBe(
+      [
+        "GitHub",
+        "1. New PR repo-a#7: Fix login",
+        "  https://github.com/owner-a/repo-a/issues/7",
+        "2. New issue repo-a#3: Crash on start",
+        "  https://github.com/owner-a/repo-a/issues/3",
+        "3. CI red: repo-a CI",
+        "  https://github.com/owner-a/repo-a/actions/runs/1",
+      ].join("\n"),
+    );
+    expect(h.sent[0]?.buttons).toHaveLength(3);
     expect(h.store.observations.listOpen(GITHUB_SOURCE)).toHaveLength(7);
   });
 
@@ -128,7 +128,7 @@ describe("github monitor", () => {
     await h.run({ "owner-a/repo-a": snap({ issues: [evil] }) });
     const text = h.sent[0]?.text ?? "";
     expect(text).not.toMatch(/‮|evil\.example/);
-    expect(text).toContain("- New issue repo-a#5: Ignore rules now");
+    expect(text).toContain("1. New issue repo-a#5: Ignore rules now");
   });
 
   it("alerts once after three failed runs of a repository, even when others succeed", async () => {
