@@ -17,7 +17,10 @@ async function main(): Promise<number> {
 
   const log = stderrLog(values.instance);
   const instance = await loadInstance(values.instance);
-  const app = await createApp(instance, { onHeartbeatError: (error) => log.error(`heartbeat failed: ${error}`) });
+  const app = await createApp(instance, {
+    onHeartbeatError: (error) => log.error(`heartbeat failed: ${error}`),
+    onWatcherError: (error) => log.error(`watcher failed: ${error}`),
+  });
   const controller = new AbortController();
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.once(signal, () => {

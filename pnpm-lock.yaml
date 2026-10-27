@@ -47,6 +47,9 @@ importers:
       '@dsptchr/store':
         specifier: workspace:*
         version: link:../store
+      '@dsptchr/watchers':
+        specifier: workspace:*
+        version: link:../watchers
       yaml:
         specifier: ^2.9.1
         version: 2.9.1

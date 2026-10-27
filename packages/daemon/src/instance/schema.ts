@@ -54,3 +54,24 @@ export const secretsSchema = z.record(
 );
 
 export type SecretRefs = z.output<typeof secretsSchema>;
+
+export const sourcesSchema = z
+  .strictObject({
+    server_health: z
+      .strictObject({
+        command: z.string().startsWith("/", "must be an absolute path"),
+        args: z.array(z.string()).default(["run", "--dry"]),
+        interval_minutes: z.number().int().min(5).max(1440).default(15),
+        timeout_seconds: z.number().int().min(10).max(1800).default(300),
+      })
+      .transform((s) => ({
+        command: s.command,
+        args: s.args,
+        intervalMinutes: s.interval_minutes,
+        timeoutSeconds: s.timeout_seconds,
+      }))
+      .optional(),
+  })
+  .transform((s) => (s.server_health === undefined ? {} : { serverHealth: s.server_health }));
+
+export type Sources = z.output<typeof sourcesSchema>;

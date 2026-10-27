@@ -1,0 +1,8 @@
+# Watchers of this instance. Copy to ~/.config/dsptchr/private/sources.yaml.
+server_health:
+  # Existing check script that prints a JSON report (findings with key, severity, host, text).
+  # Absolute paths only. For a script without the executable bit, run it through its interpreter.
+  command: /usr/bin/python3
+  args: ["/path/to/health-check.py", "run", "--dry"]
+  interval_minutes: 15
+  timeout_seconds: 300

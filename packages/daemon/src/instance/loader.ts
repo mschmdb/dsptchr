@@ -4,7 +4,14 @@ import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { z } from "zod";
 import { macosKeychain, type Keychain } from "./keychain.ts";
-import { instanceConfigSchema, secretsSchema, type InstanceConfig, type SecretRefs } from "./schema.ts";
+import {
+  instanceConfigSchema,
+  secretsSchema,
+  sourcesSchema,
+  type InstanceConfig,
+  type SecretRefs,
+  type Sources,
+} from "./schema.ts";
 import { Secret } from "./secret.ts";
 
 export class InstanceError extends Error {
@@ -16,6 +23,7 @@ export interface Instance {
   dir: string;
   role: string;
   config: InstanceConfig;
+  sources: Sources;
   paths: { stateDb: string; policy: string; sources: string; rules: string };
   secret(name: string): Promise<Secret>;
 }
@@ -47,6 +55,8 @@ export async function loadInstance(name: string, options: LoadOptions = {}): Pro
   const config = parseWith(instanceConfigSchema, configText, "instance.yaml");
   const secretsText = await readText(join(dir, "secrets.yaml"));
   const secretRefs: SecretRefs = secretsText === undefined ? {} : parseWith(secretsSchema, secretsText, "secrets.yaml");
+  const sourcesText = await readText(join(dir, "sources.yaml"));
+  const sources: Sources = sourcesText === undefined ? {} : parseWith(sourcesSchema, sourcesText, "sources.yaml");
   const role = (await readText(join(dir, "role.md"))) ?? "";
   const keychain = options.keychain ?? macosKeychain();
 
@@ -55,6 +65,7 @@ export async function loadInstance(name: string, options: LoadOptions = {}): Pro
     dir,
     role,
     config,
+    sources,
     paths: {
       stateDb: join(dir, "state.db"),
       policy: join(dir, "policy.yaml"),

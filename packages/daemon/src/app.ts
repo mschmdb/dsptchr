@@ -5,6 +5,8 @@ import { parsePolicy } from "@dsptchr/gate";
 import { openStore, type Store } from "@dsptchr/store";
 import { createBriefings } from "./briefings.ts";
 import { createDispatcher } from "./dispatch.ts";
+import { runServerHealth } from "@dsptchr/watchers";
+import { createHealthMonitor } from "./health.ts";
 import { createHeartbeat } from "./heartbeat.ts";
 import { createInbox, type Inbox } from "./inbox.ts";
 import { InstanceError, type Instance } from "./instance/loader.ts";
@@ -16,6 +18,7 @@ export interface AppOptions {
   now?: () => number;
   pollTimeoutSeconds?: number;
   onHeartbeatError?: (error: string) => void;
+  onWatcherError?: (error: string) => void;
 }
 
 export interface App {
@@ -85,6 +88,35 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
     times: instance.config.briefings,
     now,
   });
+  const healthConfig = instance.sources.serverHealth;
+  const health =
+    healthConfig === undefined
+      ? undefined
+      : createHealthMonitor({
+          store,
+          dispatcher,
+          check: () =>
+            runServerHealth({
+              command: healthConfig.command,
+              args: healthConfig.args,
+              timeoutMs: healthConfig.timeoutSeconds * 1000,
+            }),
+          intervalMs: healthConfig.intervalMinutes * 60_000,
+          now,
+          timeZone: instance.config.timezone,
+        });
+  // The check may take minutes (SSH to every host); it runs beside the scheduler, never twice at once.
+  let healthRun: Promise<unknown> | undefined;
+  const startHealth = (): void => {
+    if (health === undefined || healthRun !== undefined) return;
+    healthRun = health
+      .tick()
+      .catch((error: unknown) => options.onWatcherError?.(error instanceof Error ? error.name : "unknown error"))
+      .finally(() => {
+        healthRun = undefined;
+      });
+  };
+
   const inbox = createInbox({
     store,
     handle: (event) => operator.handle(event),
@@ -107,6 +139,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
     inbox,
     tick: async () => {
       store.inbox.purgeDone(now() - INBOX_RETENTION_MS);
+      startHealth();
       const sent = (await scheduler.tick()) + (await briefings.tick());
       // Only a completed tick counts as alive; a throwing tick skips the beat.
       const beat = await heartbeat?.beat(store.flags.isPaused() ? "paused" : "ok");

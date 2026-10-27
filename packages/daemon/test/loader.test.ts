@@ -144,6 +144,34 @@ describe("loadInstance", () => {
     expect(instance.config.heartbeat).toEqual({ pushUrl: "heartbeat_url", intervalMinutes: 5 });
   });
 
+  it("reads the server health source with defaults", async () => {
+    writeInstance("private", {
+      "instance.yaml": "timezone: UTC\n",
+      "sources.yaml": "server_health:\n  command: /opt/health/check\n",
+    });
+    const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });
+    expect(instance.sources.serverHealth).toEqual({
+      command: "/opt/health/check",
+      args: ["run", "--dry"],
+      intervalMinutes: 15,
+      timeoutSeconds: 300,
+    });
+  });
+
+  it("treats sources.yaml as optional", async () => {
+    writeInstance("private", { "instance.yaml": "timezone: UTC\n" });
+    const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });
+    expect(instance.sources).toEqual({});
+  });
+
+  it.each(["relative/check", "~/check", ""])("rejects a non-absolute command %j", async (command) => {
+    writeInstance("private", {
+      "instance.yaml": "timezone: UTC\n",
+      "sources.yaml": `server_health:\n  command: "${command}"\n`,
+    });
+    await expect(loadInstance("private", { home, keychain: fakeKeychain({}) })).rejects.toThrow(/sources.yaml/);
+  });
+
   it("defaults to no briefings", async () => {
     writeInstance("private", { "instance.yaml": "timezone: UTC\n" });
     const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });
