@@ -42,7 +42,6 @@ Track these as a checklist in the first PR description. Don't block on them; use
 
 - [ ] Console workspace for the instance with spend limit, API key
 - [ ] Telegram: two bots via BotFather, a forum group, operator user ID, group ID, privacy mode off
-- [ ] Pushover app token and user key
 - [ ] Uptime Kuma push monitor URL for the heartbeat
 - [ ] Fine-grained GitHub token (contents, pull requests) and the repository allowlist with levels
 - [ ] `proton-cli` installed and pinned; decision on a dedicated bot account

@@ -1,0 +1,35 @@
+# Watchers of this instance. Copy to ~/.config/dsptchr/private/sources.yaml.
+server_health:
+  # Existing check script that prints a JSON report (findings with key, severity, host, text).
+  # Absolute paths only. For a script without the executable bit, run it through its interpreter.
+  command: /usr/bin/python3
+  args: ["/path/to/health-check.py", "run", "--dry"]
+  # Hosts of this instance. The script may also check other instances' hosts; those are dropped.
+  # External URL checks report the host "extern".
+  hosts: [host-a, host-b, extern]
+  interval_minutes: 15
+  timeout_seconds: 300
+github:
+  token: github_token                # name of an entry in secrets.yaml (fine-grained, read-only)
+  repos:
+    - owner/repo-a                   # level defaults to observe
+    - name: owner/repo-b
+      level: observe                 # maintain arrives with the updater (Phase 2)
+  interval_minutes: 15
+proton:
+  binary: /path/to/proton-5.1.0      # pinned proton-cli, outside PATH
+  profile: dsptchr                   # session created with: proton account login --profile dsptchr
+  own_addresses: [user@example.com]  # your own addresses; their events are "own"
+  todo_address: user+todo@example.com    # mail from own_addresses to this address becomes a todo
+  calendar_interval_minutes: 30
+  mail_interval_minutes: 15
+icloud:
+  username: user@example.com         # Apple ID
+  password: icloud_caldav            # secrets.yaml entry with an app-specific password
+  calendars: [Personal]              # CalDAV calendar display names to read
+  birthdays: true                    # birthdays from contacts (CardDAV)
+  interval_minutes: 30
+knowledge:
+  adapter: /path/to/knowledge-adapter.ts  # your adapter module, see docs/knowledge.md
+  root: /path/to/notes               # knowledge base root, passed to the adapter
+  scope: privat                      # this instance's scope; sensitive paths stay locked

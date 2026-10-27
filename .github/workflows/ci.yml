@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install gitleaks (pinned, checksum verified)
+        run: |
+          curl -fsSLo gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum --check
+          tar -xzf gitleaks.tar.gz gitleaks && sudo mv gitleaks /usr/local/bin/
+      - name: Secrets in history
+        run: gitleaks git --redact --no-banner .
+      - name: Private terms (denylist from repository secret, skipped on forks)
+        run: |
+          if [ -z "${DENYLIST}" ]; then echo "denylist secret not available, skipping"; exit 0; fi
+          printf '%s\n' "${DENYLIST}" > "${RUNNER_TEMP}/denylist.txt"
+          DSPTCHR_DENYLIST="${RUNNER_TEMP}/denylist.txt" pnpm leak-check
+        env:
+          DENYLIST: ${{ secrets.DSPTCHR_DENYLIST }}
+      - run: pnpm check
+      - run: pnpm test

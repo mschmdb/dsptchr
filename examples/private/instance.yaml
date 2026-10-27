@@ -1,0 +1,18 @@
+# Copy to ~/.config/dsptchr/private/instance.yaml and replace the placeholders.
+timezone: Europe/Berlin
+channels:
+  telegram:
+    operator_user_id: 123456789      # your Telegram user ID
+    group_id: -1001234567890         # the forum group the bots live in
+    bot_token: telegram_bot_token    # name of an entry in secrets.yaml
+briefings:
+  morning: "07:30"
+  evening: "17:30"
+heartbeat:
+  push_url: heartbeat_push_url       # name of an entry in secrets.yaml
+  interval_minutes: 5
+orchestrator:
+  api_key: anthropic_api_key         # name of an entry in secrets.yaml
+  model: claude-sonnet-5-5
+  effort: medium                     # low | medium | high
+  daily_budget_usd: 1                # model calls stop for the day once reached

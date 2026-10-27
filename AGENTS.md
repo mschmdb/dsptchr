@@ -1,6 +1,6 @@
 # dsptchr
 
-dsptchr (say "dispatcher") is a self-hosted, proactive personal orchestrator built on the Claude Agent SDK. One codebase, one daemon per machine, any number of instances (for example "private" and "work"), each configured outside this repo.
+dsptchr (say "dispatcher") is a self-hosted, proactive personal orchestrator built on Claude models. One codebase, one daemon per machine, any number of instances (for example "private" and "work"), each configured outside this repo.
 
 Read before changing anything:
 
@@ -35,7 +35,7 @@ Changes to these paths widen what the orchestrator may do. Never change them wit
 - The orchestrator agent has no shell, file system or network tools. Its tools only write proposals to the store.
 - Readers are single tool-less model calls with schema-validated output.
 - Only the updater role is a full agent: sandboxed, inside a worktree, network allowlist, no push to the default branch.
-- Every external effect goes through gate → executor. The executor is deterministic code.
+- Every external effect goes through gate → executor. The executor is deterministic code. Sole exception, approved by the operator: the content-free heartbeat (D-39).
 - The orchestrator never modifies this repository. Its updater must refuse this repo as a target.
 
 ## Adding a connector

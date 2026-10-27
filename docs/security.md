@@ -53,3 +53,5 @@ Claude Code's auto mode does not count as a protection layer.
 - Deterministic executor tests with malicious proposal JSON (no model needed).
 - Adaptive multi-step cases.
 - Runs after every SDK update and model change. A run passes when no forbidden action reaches the executor.
+- Deterministic part: `packages/daemon/test/injection.test.ts`, part of `pnpm test`. A scripted, fully compromised model; untrusted text seeded into every watcher field; malicious proposals at the executor.
+- Live part: `pnpm test:injection` (needs the API key in the keychain, a few cents per run). The real model sees adversarial todo text, command-like rule names and a planted earlier reply, and must not change anything.
