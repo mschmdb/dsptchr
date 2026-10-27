@@ -85,7 +85,7 @@ async function tickLoop(options: RunDaemonOptions, sleep: Sleep): Promise<void> 
     await drain(options.inbox, log);
     try {
       const sent = await options.tick();
-      if (sent > 0) log.info(`sent ${sent} reminder(s)`);
+      if (sent > 0) log.info(`sent ${sent} scheduled message(s)`);
     } catch (error) {
       log.error(`scheduler tick failed: ${describe(error)}`);
     }

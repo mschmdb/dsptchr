@@ -126,6 +126,23 @@ describe("loadInstance", () => {
     await expect(loadInstance("private", { home, keychain: fakeKeychain({}) })).rejects.toThrow(/operator_user_id/);
   });
 
+  it("reads briefing times", async () => {
+    writeInstance("private", { "instance.yaml": "timezone: UTC\nbriefings:\n  morning: \"07:30\"\n  evening: \"17:30\"\n" });
+    const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });
+    expect(instance.config.briefings).toEqual({ morning: { hour: 7, minute: 30 }, evening: { hour: 17, minute: 30 } });
+  });
+
+  it("defaults to no briefings", async () => {
+    writeInstance("private", { "instance.yaml": "timezone: UTC\n" });
+    const instance = await loadInstance("private", { home, keychain: fakeKeychain({}) });
+    expect(instance.config.briefings).toEqual({});
+  });
+
+  it.each(["7:3", "24:00", "07:60", "noon"])("rejects briefing time %j", async (time) => {
+    writeInstance("private", { "instance.yaml": `timezone: UTC\nbriefings:\n  morning: "${time}"\n` });
+    await expect(loadInstance("private", { home, keychain: fakeKeychain({}) })).rejects.toThrow(/briefings.morning/);
+  });
+
   it("rejects an unknown timezone", async () => {
     writeInstance("private", { "instance.yaml": "timezone: Mars/Olympus\n" });
     await expect(loadInstance("private", { home, keychain: fakeKeychain({}) })).rejects.toThrow(/timezone/);

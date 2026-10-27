@@ -3,6 +3,7 @@ import { telegramChannel, type Channel } from "@dsptchr/channels";
 import { createExecutor } from "@dsptchr/executor";
 import { parsePolicy } from "@dsptchr/gate";
 import { openStore, type Store } from "@dsptchr/store";
+import { createBriefings } from "./briefings.ts";
 import { createDispatcher } from "./dispatch.ts";
 import { createInbox, type Inbox } from "./inbox.ts";
 import { InstanceError, type Instance } from "./instance/loader.ts";
@@ -65,6 +66,13 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
   const dispatcher = createDispatcher({ store, executor, policy, now });
   const operator = createOperatorHandler({ store, dispatcher, timeZone: instance.config.timezone, now });
   const scheduler = createReminderScheduler({ store, dispatcher, now });
+  const briefings = createBriefings({
+    store,
+    dispatcher,
+    timeZone: instance.config.timezone,
+    times: instance.config.briefings,
+    now,
+  });
   const inbox = createInbox({
     store,
     handle: (event) => operator.handle(event),
@@ -85,7 +93,7 @@ export async function createApp(instance: Instance, options: AppOptions = {}): P
     inbox,
     tick: async () => {
       store.inbox.purgeDone(now() - INBOX_RETENTION_MS);
-      return scheduler.tick();
+      return (await scheduler.tick()) + (await briefings.tick());
     },
     close: () => store.close(),
   };
