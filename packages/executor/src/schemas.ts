@@ -9,10 +9,17 @@ const buttonSchema = z.strictObject({
     .refine((d) => Buffer.byteLength(d, "utf8") <= MAX_BUTTON_DATA_BYTES, `at most ${MAX_BUTTON_DATA_BYTES} bytes`),
 });
 
-export const telegramSendSchema = z.strictObject({
+export const messageSendSchema = z.strictObject({
   text: z.string().min(1).max(4096),
   conversation: z.string().min(1).optional(),
   buttons: z.array(z.array(buttonSchema).min(1).max(8)).max(8).optional(),
+});
+
+export const messageAckSchema = z.strictObject({
+  conversation: z.string().min(1),
+  messageRef: z.string().min(1).max(64),
+  callbackRef: z.string().min(1).max(128),
+  note: z.string().min(1).max(200),
 });
 
 export const todoCreateSchema = z.strictObject({
@@ -28,6 +35,7 @@ export const todoUpdateSchema = z
   })
   .refine((u) => u.event !== "snooze" || u.dueAt !== undefined, { message: "snooze needs dueAt", path: ["dueAt"] });
 
-export type TelegramSend = z.infer<typeof telegramSendSchema>;
+export type MessageSend = z.infer<typeof messageSendSchema>;
+export type MessageAck = z.infer<typeof messageAckSchema>;
 export type TodoCreate = z.infer<typeof todoCreateSchema>;
 export type TodoUpdate = z.infer<typeof todoUpdateSchema>;

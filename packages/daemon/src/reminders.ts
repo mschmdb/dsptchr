@@ -41,7 +41,7 @@ export function createReminderScheduler({
         }
 
         const action = await dispatcher.dispatch({
-          type: "telegram.send",
+          type: "message.send",
           payload: {
             text: `Reminder: ${todo.text}`,
             buttons: [

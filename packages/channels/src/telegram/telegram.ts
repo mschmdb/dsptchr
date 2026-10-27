@@ -159,12 +159,12 @@ export function telegramChannel(options: TelegramOptions): Channel {
       return { conversation: conversationOf(chatId, threadId), messageRef: String(sent.data.message_id) };
     },
 
-    async acknowledge(event, note) {
-      await call("answerCallbackQuery", { callback_query_id: event.callbackRef, text: note });
-      const { chatId } = parseConversation(event.conversation);
+    async acknowledge(target, note) {
+      const { chatId } = parseConversation(target.conversation);
+      await call("answerCallbackQuery", { callback_query_id: target.callbackRef, text: note.slice(0, 200) });
       await call("editMessageReplyMarkup", {
         chat_id: chatId,
-        message_id: Number(event.messageRef),
+        message_id: Number(target.messageRef),
         reply_markup: { inline_keyboard: [] },
       });
     },

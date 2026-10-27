@@ -45,10 +45,10 @@ beforeEach(() => {
   store = openStore({ path: ":memory:", now: () => clock.now });
 });
 
-describe("telegram.send", () => {
+describe("message.send", () => {
   it("sends the message and records the reference", async () => {
     const { executor, sent } = setup();
-    const action = approved("telegram.send", { text: "Hello", buttons: [[{ label: "Done", data: "todo:done:1" }]] });
+    const action = approved("message.send", { text: "Hello", buttons: [[{ label: "Done", data: "todo:done:1" }]] });
 
     const result = await executor.execute(action.id);
 
@@ -58,7 +58,7 @@ describe("telegram.send", () => {
 
   it("marks the action failed when the channel fails", async () => {
     const { executor } = setup({ fail: true });
-    const action = approved("telegram.send", { text: "Hello" });
+    const action = approved("message.send", { text: "Hello" });
 
     const result = await executor.execute(action.id);
 
@@ -72,9 +72,32 @@ describe("telegram.send", () => {
     ["oversized button data", { text: "x", buttons: [[{ label: "b", data: "x".repeat(65) }]] }],
   ])("fails on invalid payload: %s", async (_name, payload) => {
     const { executor, sent } = setup();
-    const result = await executor.execute(approved("telegram.send", payload).id);
+    const result = await executor.execute(approved("message.send", payload).id);
     expect(result.state).toBe("failed");
     expect(sent).toEqual([]);
+  });
+});
+
+describe("message.ack", () => {
+  it("acknowledges the button press with a note", async () => {
+    const acks: unknown[] = [];
+    const { channel } = fakeChannel();
+    channel.acknowledge = async (target, note) => {
+      acks.push({ target, note });
+    };
+    const executor = createExecutor({ store, channel });
+    const payload = { conversation: "-1002", messageRef: "77", callbackRef: "cb-1", note: "Done" };
+
+    const result = await executor.execute(approved("message.ack", payload).id);
+
+    expect(result.state).toBe("executed");
+    expect(acks).toEqual([{ target: { conversation: "-1002", messageRef: "77", callbackRef: "cb-1" }, note: "Done" }]);
+  });
+
+  it("rejects payloads without a callback reference", async () => {
+    const { executor } = setup();
+    const result = await executor.execute(approved("message.ack", { conversation: "c", messageRef: "1", note: "x" }).id);
+    expect(result.state).toBe("failed");
   });
 });
 
@@ -153,14 +176,37 @@ describe("todo.update", () => {
   });
 });
 
+describe("atomicity", () => {
+  it("rolls back local changes when the success transition cannot be recorded", async () => {
+    const { channel } = fakeChannel();
+    const brokenStore: Store = {
+      ...store,
+      actions: {
+        ...store.actions,
+        transition: (id, event, options) => {
+          if (event === "succeed") throw new Error("disk full");
+          return store.actions.transition(id, event, options);
+        },
+      },
+    };
+    const action = approved("todo.create", { text: "once", dueAt: T0 + 1000 });
+
+    await createExecutor({ store: brokenStore, channel }).execute(action.id);
+
+    expect(store.todos.listActive()).toEqual([]);
+    clock.now = T0 + 5000;
+    expect(store.reminders.due()).toEqual([]);
+  });
+});
+
 describe("guards", () => {
   it("refuses actions that are not approved", async () => {
     const { executor, sent } = setup();
     const { action } = store.actions.propose({
-      type: "telegram.send",
+      type: "message.send",
       payload: { text: "x" },
       idempotencyKey: "k",
-      draftHash: draftHash({ type: "telegram.send", payload: { text: "x" } }),
+      draftHash: draftHash({ type: "message.send", payload: { text: "x" } }),
       actor: "test",
     });
 
@@ -172,7 +218,7 @@ describe("guards", () => {
 
   it("never runs an action twice", async () => {
     const { executor, sent } = setup();
-    const action = approved("telegram.send", { text: "once" });
+    const action = approved("message.send", { text: "once" });
     await executor.execute(action.id);
     await expect(executor.execute(action.id)).rejects.toThrow(/not approved/);
     expect(sent).toHaveLength(1);
@@ -181,10 +227,10 @@ describe("guards", () => {
   it("fails actions whose payload no longer matches the approved draft hash", async () => {
     const { executor, sent } = setup();
     const { action } = store.actions.propose({
-      type: "telegram.send",
+      type: "message.send",
       payload: { text: "changed after approval" },
       idempotencyKey: "k",
-      draftHash: draftHash({ type: "telegram.send", payload: { text: "original" } }),
+      draftHash: draftHash({ type: "message.send", payload: { text: "original" } }),
       actor: "test",
     });
     store.actions.transition(action.id, "approve", { actor: "gate" });
@@ -197,7 +243,7 @@ describe("guards", () => {
 
   it("fails actions without a draft hash", async () => {
     const { executor } = setup();
-    const { action } = store.actions.propose({ type: "telegram.send", payload: { text: "x" }, idempotencyKey: "k", actor: "t" });
+    const { action } = store.actions.propose({ type: "message.send", payload: { text: "x" }, idempotencyKey: "k", actor: "t" });
     store.actions.transition(action.id, "approve", { actor: "gate" });
     expect((await executor.execute(action.id)).state).toBe("failed");
   });

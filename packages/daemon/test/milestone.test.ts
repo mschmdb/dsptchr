@@ -53,7 +53,7 @@ describe("phase 1 milestone", () => {
     writeFileSync(join(dir, "secrets.yaml"), "bot:\n  keychain:\n    service: dsptchr.test\n    account: bot\n");
     writeFileSync(
       join(dir, "policy.yaml"),
-      "actions:\n  telegram.send:\n    level: auto\n  todo.create:\n    level: auto\n  todo.update:\n    level: auto\n",
+      "actions:\n  message.send:\n    level: auto\n  message.ack:\n    level: auto\n  todo.create:\n    level: auto\n  todo.update:\n    level: auto\n",
     );
     const instance = await loadInstance("test", { home, keychain: { read: async () => TOKEN } });
     telegram = fakeTelegram();
@@ -102,7 +102,7 @@ describe("phase 1 milestone", () => {
     await pump();
 
     expect(app.store.todos.get(todo?.id ?? "")?.state).toBe("done");
-    expect(telegram.sent.at(-1)).toMatchObject({ text: "Done: Water plants" });
+    expect(telegram.calls.slice(-2)).toEqual(["answerCallbackQuery", "editMessageReplyMarkup"]);
 
     const events = app.store.audit.list().map((e) => e.event);
     expect(events).toEqual(
@@ -113,7 +113,7 @@ describe("phase 1 milestone", () => {
   });
 
   it("refuses to start with ask policies until operator approvals exist", async () => {
-    writeFileSync(join(home, "test", "policy.yaml"), "actions:\n  telegram.send:\n    level: ask\n");
+    writeFileSync(join(home, "test", "policy.yaml"), "actions:\n  message.send:\n    level: ask\n");
     const instance = await loadInstance("test", { home, keychain: { read: async () => TOKEN } });
     await expect(createApp(instance, { fetch: telegram.fetch })).rejects.toThrow(/ask/);
   });

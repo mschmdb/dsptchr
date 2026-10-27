@@ -186,7 +186,7 @@ describe("telegramChannel.acknowledge", () => {
   it("answers the callback and removes the buttons", async () => {
     const { channel, calls } = setup({});
     await channel.acknowledge(
-      { kind: "button", id: "telegram:1", data: "d", conversation: `${GROUP}`, messageRef: "77", callbackRef: "cb-1", receivedAt: NOW },
+      { conversation: `${GROUP}`, messageRef: "77", callbackRef: "cb-1" },
       "Done",
     );
     expect(calls).toEqual([
@@ -196,6 +196,16 @@ describe("telegramChannel.acknowledge", () => {
         body: { chat_id: GROUP, message_id: 77, reply_markup: { inline_keyboard: [] } },
       },
     ]);
+  });
+});
+
+describe("telegramChannel.acknowledge allowlist", () => {
+  it("refuses to acknowledge in a foreign chat", async () => {
+    const { channel, calls } = setup({});
+    await expect(channel.acknowledge({ conversation: "-777", messageRef: "1", callbackRef: "cb" }, "x")).rejects.toThrow(
+      /not allowed/,
+    );
+    expect(calls).toEqual([]);
   });
 });
 

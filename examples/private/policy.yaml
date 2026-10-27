@@ -1,9 +1,11 @@
 # Autonomy per action type: auto | ask | never. Types missing here are denied.
 # Copy to ~/.config/dsptchr/private/policy.yaml.
 actions:
-  telegram.send:
+  message.send:
     level: auto
     rate_limit: { max: 30, per_minutes: 60 }
+  message.ack:
+    level: auto
   todo.create:
     level: auto
   todo.update:

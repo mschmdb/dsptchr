@@ -98,7 +98,10 @@ describe("buttons", () => {
     const id = await todoWithDue(h);
     await h.handler.handle(button(`todo:done:${id}`));
     expect(h.store.todos.get(id)?.state).toBe("done");
-    expect(h.sent).toEqual([{ text: "Done: Water plants", conversation: "-1002" }]);
+    expect(h.sent).toEqual([]);
+    expect(h.acks).toEqual([
+      { target: { conversation: "-1002", messageRef: "1", callbackRef: expect.any(String) }, note: "Done: Water plants" },
+    ]);
   });
 
   it("snoozes by one hour", async () => {
@@ -106,6 +109,7 @@ describe("buttons", () => {
     const id = await todoWithDue(h);
     await h.handler.handle(button(`todo:hour:${id}`));
     expect(h.store.todos.get(id)).toMatchObject({ state: "snoozed", dueAt: T0 + 3_600_000 });
+    expect(h.acks[0]?.note).toBe("Snoozed until Tue 27.10. 12:00");
   });
 
   it("snoozes to tomorrow 09:00 local time", async () => {
@@ -120,7 +124,7 @@ describe("buttons", () => {
     const id = await todoWithDue(h);
     await h.handler.handle(button(`todo:done:${id}`));
     await h.handler.handle(button(`todo:done:${id}`));
-    expect(h.sent.at(-1)?.text).toMatch(/already/i);
+    expect(h.acks.at(-1)?.note).toMatch(/already done/i);
   });
 
   it("ignores unknown or malformed button data", async () => {
@@ -129,12 +133,13 @@ describe("buttons", () => {
       await h.handler.handle(button(data));
     }
     expect(h.sent).toEqual([]);
+    expect(h.acks.map((a) => a.note)).toEqual(Array(4).fill("Unknown action"));
     expect(h.store.audit.list().filter((e) => e.event === "operator.unknown_button")).toHaveLength(4);
   });
 
   it("ignores buttons for unknown todos", async () => {
     const h = setup();
     await h.handler.handle(button("todo:done:missing"));
-    expect(h.sent[0]?.text).toMatch(/not found/i);
+    expect(h.acks[0]?.note).toMatch(/not found/i);
   });
 });

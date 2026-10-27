@@ -216,8 +216,8 @@ describe("cursors", () => {
 describe("actions", () => {
   it("proposes an action once per idempotency key", () => {
     const { store } = testStore();
-    const first = store.actions.propose({ type: "telegram.send", payload: { a: 1 }, idempotencyKey: "k1", actor: "system" });
-    const second = store.actions.propose({ type: "telegram.send", payload: { a: 2 }, idempotencyKey: "k1", actor: "system" });
+    const first = store.actions.propose({ type: "message.send", payload: { a: 1 }, idempotencyKey: "k1", actor: "system" });
+    const second = store.actions.propose({ type: "message.send", payload: { a: 2 }, idempotencyKey: "k1", actor: "system" });
 
     expect(first.created).toBe(true);
     expect(second.created).toBe(false);

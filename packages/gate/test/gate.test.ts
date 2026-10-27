@@ -3,7 +3,7 @@ import { draftHash, evaluate, parsePolicy, PolicyError, type GateContext } from 
 
 const POLICY = parsePolicy(`
 actions:
-  telegram.send:
+  message.send:
     level: auto
     rate_limit: { max: 2, per_minutes: 60 }
   todo.create:
@@ -20,7 +20,7 @@ function context(overrides: Partial<GateContext> = {}): GateContext {
 
 describe("parsePolicy", () => {
   it("parses levels and rate limits", () => {
-    expect(POLICY.actions["telegram.send"]).toEqual({ level: "auto", rateLimit: { max: 2, perMinutes: 60 } });
+    expect(POLICY.actions["message.send"]).toEqual({ level: "auto", rateLimit: { max: 2, perMinutes: 60 } });
     expect(POLICY.actions["todo.create"]).toEqual({ level: "auto" });
   });
 
@@ -70,12 +70,12 @@ describe("evaluate", () => {
         return 2;
       },
     });
-    expect(evaluate({ type: "telegram.send", payload: {} }, ctx)).toEqual({ decision: "deny", reason: "rate limit: 2 per 60 min" });
-    expect(seen).toEqual([["telegram.send", 1_000_000 - 60 * 60_000]]);
+    expect(evaluate({ type: "message.send", payload: {} }, ctx)).toEqual({ decision: "deny", reason: "rate limit: 2 per 60 min" });
+    expect(seen).toEqual([["message.send", 1_000_000 - 60 * 60_000]]);
   });
 
   it("approves below the rate limit", () => {
-    expect(evaluate({ type: "telegram.send", payload: {} }, context({ countApprovedSince: () => 1 })).decision).toBe("approve");
+    expect(evaluate({ type: "message.send", payload: {} }, context({ countApprovedSince: () => 1 })).decision).toBe("approve");
   });
 
   it("applies rate limits to ask actions too", () => {

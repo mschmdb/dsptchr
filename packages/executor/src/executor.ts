@@ -2,7 +2,7 @@ import type { Channel } from "@dsptchr/channels";
 import { draftHash } from "@dsptchr/gate";
 import type { StoredAction, Store } from "@dsptchr/store";
 import type { z } from "zod";
-import { telegramSendSchema, todoCreateSchema, todoUpdateSchema } from "./schemas.ts";
+import { messageAckSchema, messageSendSchema, todoCreateSchema, todoUpdateSchema } from "./schemas.ts";
 
 export class ExecutorError extends Error {
   override name = "ExecutorError";
@@ -17,18 +17,22 @@ export interface Executor {
   execute(actionId: string): Promise<StoredAction>;
 }
 
-interface Handler<S extends z.ZodType> {
-  schema: S;
-  run(payload: z.output<S>): Promise<Record<string, unknown>>;
-}
+type Result = Record<string, unknown>;
+
+// Local handlers change only the store and run synchronously, so their changes and the
+// action's success commit in one transaction. Remote handlers reach the outside world;
+// a crash after the effect but before the commit repeats the effect (at-least-once).
+type Handler =
+  | { kind: "local"; schema: z.ZodType; run(payload: unknown): Result }
+  | { kind: "remote"; schema: z.ZodType; run(payload: unknown): Promise<Result> };
 
 const ACTOR = "executor";
 
 // One narrow handler per action type (AR-4). Nothing here decides; it only runs
 // actions the gate approved, after re-checking payload and draft hash.
 export function createExecutor({ store, channel }: ExecutorDeps): Executor {
-  const handlers: Record<string, Handler<z.ZodType>> = {
-    "telegram.send": handler(telegramSendSchema, async (payload) => {
+  const handlers: Record<string, Handler> = {
+    "message.send": remote(messageSendSchema, async (payload) => {
       const sent = await channel.send({
         text: payload.text,
         ...(payload.conversation === undefined ? {} : { conversation: payload.conversation }),
@@ -37,36 +41,43 @@ export function createExecutor({ store, channel }: ExecutorDeps): Executor {
       return { conversation: sent.conversation, messageRef: sent.messageRef };
     }),
 
-    "todo.create": handler(todoCreateSchema, async (payload) =>
-      store.transaction(() => {
-        const todo = store.todos.create({
-          text: payload.text,
-          ...(payload.dueAt === undefined ? {} : { dueAt: payload.dueAt }),
-          actor: ACTOR,
-        });
-        if (payload.dueAt !== undefined) {
-          store.reminders.schedule({ todoId: todo.id, fireAt: payload.dueAt });
-        }
-        return { todoId: todo.id };
-      }),
-    ),
+    "message.ack": remote(messageAckSchema, async (payload) => {
+      await channel.acknowledge(
+        { conversation: payload.conversation, messageRef: payload.messageRef, callbackRef: payload.callbackRef },
+        payload.note,
+      );
+      return {};
+    }),
 
-    "todo.update": handler(todoUpdateSchema, async (payload) =>
-      store.transaction(() => {
-        const todo = store.todos.transition(payload.todoId, payload.event, {
-          actor: ACTOR,
-          ...(payload.dueAt === undefined ? {} : { dueAt: payload.dueAt }),
-        });
-        if (payload.event !== "wake") {
-          store.reminders.cancelForTodo(todo.id);
-        }
-        if (payload.event === "snooze" && payload.dueAt !== undefined) {
-          store.reminders.schedule({ todoId: todo.id, fireAt: payload.dueAt });
-        }
-        return { todoId: todo.id, state: todo.state };
-      }),
-    ),
+    "todo.create": local(todoCreateSchema, (payload) => {
+      const todo = store.todos.create({
+        text: payload.text,
+        ...(payload.dueAt === undefined ? {} : { dueAt: payload.dueAt }),
+        actor: ACTOR,
+      });
+      if (payload.dueAt !== undefined) {
+        store.reminders.schedule({ todoId: todo.id, fireAt: payload.dueAt });
+      }
+      return { todoId: todo.id };
+    }),
+
+    "todo.update": local(todoUpdateSchema, (payload) => {
+      const todo = store.todos.transition(payload.todoId, payload.event, {
+        actor: ACTOR,
+        ...(payload.dueAt === undefined ? {} : { dueAt: payload.dueAt }),
+      });
+      if (payload.event !== "wake") {
+        store.reminders.cancelForTodo(todo.id);
+      }
+      if (payload.event === "snooze" && payload.dueAt !== undefined) {
+        store.reminders.schedule({ todoId: todo.id, fireAt: payload.dueAt });
+      }
+      return { todoId: todo.id, state: todo.state };
+    }),
   };
+
+  const succeed = (actionId: string, result: Result): StoredAction =>
+    store.actions.transition(actionId, "succeed", { actor: ACTOR, result });
 
   return {
     async execute(actionId) {
@@ -92,8 +103,10 @@ export function createExecutor({ store, channel }: ExecutorDeps): Executor {
         return fail(`invalid payload: ${parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ")}`);
       }
       try {
-        const result = await selected.run(parsed.data);
-        return store.actions.transition(actionId, "succeed", { actor: ACTOR, result });
+        if (selected.kind === "local") {
+          return store.transaction(() => succeed(actionId, selected.run(parsed.data)));
+        }
+        return succeed(actionId, await selected.run(parsed.data));
       } catch (error) {
         return fail(error instanceof Error ? error.message : "unknown error");
       }
@@ -101,6 +114,10 @@ export function createExecutor({ store, channel }: ExecutorDeps): Executor {
   };
 }
 
-function handler<S extends z.ZodType>(schema: S, run: (payload: z.output<S>) => Promise<Record<string, unknown>>): Handler<z.ZodType> {
-  return { schema, run } as Handler<z.ZodType>;
+function local<S extends z.ZodType>(schema: S, run: (payload: z.output<S>) => Result): Handler {
+  return { kind: "local", schema, run: run as (payload: unknown) => Result };
+}
+
+function remote<S extends z.ZodType>(schema: S, run: (payload: z.output<S>) => Promise<Result>): Handler {
+  return { kind: "remote", schema, run: run as (payload: unknown) => Promise<Result> };
 }

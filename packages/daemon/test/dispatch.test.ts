@@ -6,7 +6,7 @@ describe("dispatcher", () => {
   it("runs approved proposals through the executor", async () => {
     const h = harness();
     const action = await h.dispatcher.dispatch({
-      type: "telegram.send",
+      type: "message.send",
       payload: { text: "hi" },
       idempotencyKey: "k1",
       actor: "operator",
@@ -22,7 +22,7 @@ describe("dispatcher", () => {
 
   it("is idempotent per key", async () => {
     const h = harness();
-    const input = { type: "telegram.send", payload: { text: "hi" }, idempotencyKey: "k1", actor: "operator" };
+    const input = { type: "message.send", payload: { text: "hi" }, idempotencyKey: "k1", actor: "operator" };
     const first = await h.dispatcher.dispatch(input);
     const second = await h.dispatcher.dispatch(input);
     expect(second.id).toBe(first.id);
@@ -30,9 +30,9 @@ describe("dispatcher", () => {
   });
 
   it("denies and never executes actions the policy forbids", async () => {
-    const h = harness(parsePolicy("actions:\n  telegram.send:\n    level: never\n"));
+    const h = harness(parsePolicy("actions:\n  message.send:\n    level: never\n"));
     const action = await h.dispatcher.dispatch({
-      type: "telegram.send",
+      type: "message.send",
       payload: { text: "hi" },
       idempotencyKey: "k",
       actor: "orchestrator",
@@ -43,8 +43,8 @@ describe("dispatcher", () => {
   });
 
   it("parks ask actions for the operator", async () => {
-    const h = harness(parsePolicy("actions:\n  telegram.send:\n    level: ask\n"));
-    const action = await h.dispatcher.dispatch({ type: "telegram.send", payload: { text: "hi" }, idempotencyKey: "k", actor: "x" });
+    const h = harness(parsePolicy("actions:\n  message.send:\n    level: ask\n"));
+    const action = await h.dispatcher.dispatch({ type: "message.send", payload: { text: "hi" }, idempotencyKey: "k", actor: "x" });
     expect(action.state).toBe("needs_operator");
     expect(h.sent).toEqual([]);
   });
@@ -57,10 +57,10 @@ describe("dispatcher", () => {
   });
 
   it("enforces the rate limit", async () => {
-    const h = harness(parsePolicy("actions:\n  telegram.send:\n    level: auto\n    rate_limit: { max: 2, per_minutes: 60 }\n"));
+    const h = harness(parsePolicy("actions:\n  message.send:\n    level: auto\n    rate_limit: { max: 2, per_minutes: 60 }\n"));
     const states = [];
     for (let i = 0; i < 3; i++) {
-      states.push((await h.dispatcher.dispatch({ type: "telegram.send", payload: { text: `m${i}` }, idempotencyKey: `k${i}`, actor: "x" })).state);
+      states.push((await h.dispatcher.dispatch({ type: "message.send", payload: { text: `m${i}` }, idempotencyKey: `k${i}`, actor: "x" })).state);
     }
     expect(states).toEqual(["executed", "executed", "denied"]);
   });
@@ -68,45 +68,45 @@ describe("dispatcher", () => {
   it("resumes gate evaluation for an action stranded in proposed", async () => {
     const h = harness();
     h.store.actions.propose({
-      type: "telegram.send",
+      type: "message.send",
       payload: { text: "hi" },
       idempotencyKey: "k",
-      draftHash: draftHash({ type: "telegram.send", payload: { text: "hi" } }),
+      draftHash: draftHash({ type: "message.send", payload: { text: "hi" } }),
       actor: "x",
     });
-    const result = await h.dispatcher.dispatch({ type: "telegram.send", payload: { text: "hi" }, idempotencyKey: "k", actor: "x" });
+    const result = await h.dispatcher.dispatch({ type: "message.send", payload: { text: "hi" }, idempotencyKey: "k", actor: "x" });
     expect(result.state).toBe("executed");
   });
 
   it("does not run a recovered approved action while paused", async () => {
     const h = harness();
     const { action } = h.store.actions.propose({
-      type: "telegram.send",
+      type: "message.send",
       payload: { text: "hi" },
       idempotencyKey: "k",
-      draftHash: draftHash({ type: "telegram.send", payload: { text: "hi" } }),
+      draftHash: draftHash({ type: "message.send", payload: { text: "hi" } }),
       actor: "x",
     });
     h.store.actions.transition(action.id, "approve", { actor: "gate" });
     h.store.flags.setPaused(true, "operator");
 
-    const result = await h.dispatcher.dispatch({ type: "telegram.send", payload: { text: "hi" }, idempotencyKey: "k", actor: "x" });
+    const result = await h.dispatcher.dispatch({ type: "message.send", payload: { text: "hi" }, idempotencyKey: "k", actor: "x" });
     expect(result.state).toBe("approved");
     expect(h.sent).toEqual([]);
   });
 
   it("does not run a recovered approved action the policy no longer allows", async () => {
-    const h = harness(parsePolicy("actions:\n  telegram.send:\n    level: never\n"));
+    const h = harness(parsePolicy("actions:\n  message.send:\n    level: never\n"));
     const { action } = h.store.actions.propose({
-      type: "telegram.send",
+      type: "message.send",
       payload: { text: "hi" },
       idempotencyKey: "k",
-      draftHash: draftHash({ type: "telegram.send", payload: { text: "hi" } }),
+      draftHash: draftHash({ type: "message.send", payload: { text: "hi" } }),
       actor: "x",
     });
     h.store.actions.transition(action.id, "approve", { actor: "gate" });
 
-    const result = await h.dispatcher.dispatch({ type: "telegram.send", payload: { text: "hi" }, idempotencyKey: "k", actor: "x" });
+    const result = await h.dispatcher.dispatch({ type: "message.send", payload: { text: "hi" }, idempotencyKey: "k", actor: "x" });
     expect(result.state).toBe("approved");
     expect(h.sent).toEqual([]);
   });
@@ -114,15 +114,15 @@ describe("dispatcher", () => {
   it("resumes an approved action left behind by a crash", async () => {
     const h = harness();
     const { action } = h.store.actions.propose({
-      type: "telegram.send",
+      type: "message.send",
       payload: { text: "hi" },
       idempotencyKey: "k",
-      draftHash: (await import("@dsptchr/gate")).draftHash({ type: "telegram.send", payload: { text: "hi" } }),
+      draftHash: (await import("@dsptchr/gate")).draftHash({ type: "message.send", payload: { text: "hi" } }),
       actor: "x",
     });
     h.store.actions.transition(action.id, "approve", { actor: "gate" });
 
-    const result = await h.dispatcher.dispatch({ type: "telegram.send", payload: { text: "hi" }, idempotencyKey: "k", actor: "x" });
+    const result = await h.dispatcher.dispatch({ type: "message.send", payload: { text: "hi" }, idempotencyKey: "k", actor: "x" });
     expect(result.state).toBe("executed");
     expect(h.sent).toHaveLength(1);
   });
