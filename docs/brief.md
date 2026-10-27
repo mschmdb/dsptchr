@@ -24,8 +24,7 @@ One operator. No multi-user features.
 ## Interfaces
 
 - **Typing channel:** Telegram (two bots in one forum group plus direct chats, inline buttons). Built as a replaceable adapter.
-- **Alarms:** Pushover (emergency priority for critical events).
-- **Quick capture:** HTTP endpoint reachable only inside a private network (Tailscale), for an iOS Shortcut.
+- **Alarms:** Telegram, same channel as everything else (see D-37).
 - **Todo mail:** mail with a sub-address (for example `user+todo@example.com`) from the operator's own address.
 - No web UI, no custom chat, no CLI beyond what development needs. Configuration lives in files.
 
@@ -42,8 +41,8 @@ Acceptance criteria are binding.
 4. **Readers:** tool-less model calls (Haiku) returning schema-validated JSON. No free text from untrusted input reaches the orchestrator unlabeled.
 5. **Orchestrator run:** Sonnet, batched (at most hourly in configured hours, immediately for urgent items). Tools only write proposals: `propose_action`, `create_todo`, `ask_operator`, `send_hint`, `read_state`, `search_knowledge` (read-only).
 6. **Gate:** policy table with autonomy levels (`auto`, `ask`, `never`), rate limits, daily budget. Approvals bound to a hash of the exact draft.
-7. **Executor:** narrow functions per action type. Phase 1 actions: send Telegram message, send Pushover alarm, create/update todo, write a knowledge note via the configured knowledge CLI.
-8. **Todos:** capture via Telegram, Shortcut endpoint and todo mail. Natural-language due dates extracted by the model, stored and fired deterministically. Reminders with buttons (done, +1 h, tomorrow), escalation by due date and priority, morning briefing, evening "still open".
+7. **Executor:** narrow functions per action type. Phase 1 actions: send and acknowledge messages, create/update todo, write a knowledge note via the configured knowledge CLI.
+8. **Todos:** capture via Telegram and todo mail. Natural-language due dates extracted by the model, stored and fired deterministically. Reminders with buttons (done, +1 h, tomorrow), escalation by due date and priority, morning briefing, evening "still open".
 9. **Briefings:** morning and evening, times configurable.
 10. **Heartbeat** to an external push monitor (Uptime Kuma) after every run.
 11. **Kill switch:** "stop" in Telegram pauses all actions.

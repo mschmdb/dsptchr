@@ -12,7 +12,7 @@ Watcher ──► Reader ──► Orchestrator ──► Gate ─────�
    │                         ▲                               │
    └──── Store ◄─────────────┴──────── Audit log ◄───────────┘
            ▲
-   Operator input: Telegram, Shortcut endpoint, todo mail
+   Operator input: Telegram, todo mail
 ```
 
 ## Binding rules
@@ -20,7 +20,7 @@ Watcher ──► Reader ──► Orchestrator ──► Gate ─────�
 - **AR-1** The orchestrator agent has no shell, file system or network tools. Its only tools are in-process tools that write proposals to the store or read state.
 - **AR-2** Readers are single tool-less model calls with schema-validated output. Free text derived from untrusted input carries the label `untrusted` and is never copied into arguments of external actions.
 - **AR-3** Only the updater is a full agent. It runs sandboxed in a git worktree, with a network allowlist, a token limited to contents and pull requests, and no push to the default branch. It refuses this repository as a target.
-- **AR-4** Every external effect goes through gate → executor. The executor is deterministic code with one narrow function per action type.
+- **AR-4** Every external effect goes through gate → executor. The executor is deterministic code with one narrow function per action type. Sole exception: the content-free heartbeat (D-39).
 - **AR-5** Deduplication, scheduling, reminders and rate limits are code, never model judgment.
 - **AR-6** Rules change only through operator approval. Feedback is stored as events; a nightly run proposes rule changes.
 - **AR-7** Instance data (config, rules, state, secrets) never lives in the repo.
@@ -41,7 +41,7 @@ Channel → inbox (SQLite) → operator handler → dispatcher. The channel conf
 | `agents` | Role prompts (Markdown) and output schemas: reader, orchestrator, updater, knowledge, dream |
 | `gate` | Policy evaluation, rate limits, budget, classifier, draft-hash approvals (protected) |
 | `executor` | Action implementations (protected) |
-| `channels` | Telegram (long polling, buttons), Pushover, Shortcut HTTP endpoint |
+| `channels` | Telegram (long polling, buttons) |
 | `mailbox` | Inter-instance mailbox service and client (Phase 4) |
 | `daemon` | Scheduler, wake catch-up, heartbeat, budget stop, wiring |
 
