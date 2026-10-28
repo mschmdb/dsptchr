@@ -1,7 +1,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 
-export const readStateInput = z.strictObject({ scope: z.enum(["todos", "calendar", "birthdays", "mail", "health", "github", "analytics", "status"]) });
+const SCOPES = ["todos", "shopping", "calendar", "birthdays", "mail", "health", "github", "analytics", "status"] as const;
+export const readStateInput = z.strictObject({ scope: z.enum(SCOPES) });
 export const createTodoInput = z.strictObject({
   text: z.string().trim().min(1).max(500),
   due_at: z.string().max(40).nullable().optional(),
@@ -10,6 +11,23 @@ export const updateTodoInput = z.strictObject({
   todo_id: z.string().min(1).max(64),
   action: z.enum(["complete", "drop", "snooze"]),
   due_at: z.string().max(40).nullable().optional(),
+});
+
+export const addToShoppingListInput = z.strictObject({
+  items: z
+    .array(
+      z.strictObject({
+        name: z.string().trim().min(1).max(60),
+        quantity: z.string().trim().min(1).max(20).nullable().optional(),
+        kind: z.enum(["once", "every", "empty"]).nullable().optional(),
+      }),
+    )
+    .min(1)
+    .max(20),
+});
+export const updateShoppingItemInput = z.strictObject({
+  item_id: z.string().min(1).max(64),
+  action: z.enum(["check", "uncheck", "need", "stock", "remove"]),
 });
 
 export const searchCalendarInput = z.strictObject({
@@ -37,8 +55,11 @@ export type SearchCalendarInput = z.infer<typeof searchCalendarInput>;
 export type ReadStateInput = z.infer<typeof readStateInput>;
 export type CreateTodoInput = z.infer<typeof createTodoInput>;
 export type UpdateTodoInput = z.infer<typeof updateTodoInput>;
+export type AddToShoppingListInput = z.infer<typeof addToShoppingListInput>;
+export type UpdateShoppingItemInput = z.infer<typeof updateShoppingItemInput>;
 
-// The orchestrator's whole capability surface (AR-1): read state, propose todo changes.
+// The orchestrator's whole capability surface (AR-1): read state, propose todo, shopping
+// list and knowledge changes.
 // Every write becomes a proposal that passes gate and executor.
 export interface OrchestratorTools {
   read_state(input: ReadStateInput): Promise<string>;
@@ -48,6 +69,8 @@ export interface OrchestratorTools {
   write_knowledge(input: WriteKnowledgeInput): Promise<string>;
   create_todo(input: CreateTodoInput): Promise<string>;
   update_todo(input: UpdateTodoInput): Promise<string>;
+  add_to_shopping_list(input: AddToShoppingListInput): Promise<string>;
+  update_shopping_item(input: UpdateShoppingItemInput): Promise<string>;
 }
 
 // Thrown by handlers for input the model can fix; it goes back as an error tool result.
@@ -63,6 +86,8 @@ export const INPUT_SCHEMAS = {
   write_knowledge: writeKnowledgeInput,
   create_todo: createTodoInput,
   update_todo: updateTodoInput,
+  add_to_shopping_list: addToShoppingListInput,
+  update_shopping_item: updateShoppingItemInput,
 } as const;
 
 const DUE_AT = {
@@ -75,10 +100,10 @@ export const TOOL_DEFINITIONS: Anthropic.Beta.BetaTool[] = [
   {
     name: "read_state",
     description:
-      "Read current state. todos: open todos with id, text, due time. calendar: today's and tomorrow's events (titles of other people's invitations are hidden) and birthdays. birthdays: every contact's birthday with its next date. mail: counts of the last 24 h by category, how many need action or are urgent. health: open server health findings (host, severity, check, since). github: per repository, open PRs and issues by author type and the number of red CI workflows. analytics: web analytics of the operator's sites (yesterday and the last 30 days). status: pause state, counts, last health check.",
+      "Read current state. todos: open todos with id, text, due time. shopping: every shopping list item with id, name, quantity, kind and state (needed, checked = in the cart, stocked = staple at home). calendar: today's and tomorrow's events (titles of other people's invitations are hidden) and birthdays. birthdays: every contact's birthday with its next date. mail: counts of the last 24 h by category, how many need action or are urgent. health: open server health findings (host, severity, check, since). github: per repository, open PRs and issues by author type and the number of red CI workflows. analytics: web analytics of the operator's sites (yesterday and the last 30 days). status: pause state, counts, last health check.",
     input_schema: {
       type: "object",
-      properties: { scope: { type: "string", enum: ["todos", "calendar", "birthdays", "mail", "health", "github", "analytics", "status"] } },
+      properties: { scope: { type: "string", enum: [...SCOPES] } },
       required: ["scope"],
       additionalProperties: false,
     },
@@ -159,6 +184,46 @@ export const TOOL_DEFINITIONS: Anthropic.Beta.BetaTool[] = [
         due_at: DUE_AT,
       },
       required: ["todo_id", "action"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "add_to_shopping_list",
+    description:
+      "Put items on the shopping list. An item already on it is merged, not duplicated. kind: once = buy one time; every = staple bought on every trip; empty = staple bought only when it has run out. Null keeps an existing item's kind (new items become once). Mark staples only when the operator says so.",
+    input_schema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          maxItems: 20,
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "Product name only, e.g. Milch. At most 60 characters." },
+              quantity: { type: ["string", "null"], description: "Short amount like 2, 500 g or 4x; null if none." },
+              kind: { type: ["string", "null"], enum: ["once", "every", "empty", null] },
+            },
+            required: ["name"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["items"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_shopping_item",
+    description:
+      "Change one shopping list item; take item_id from read_state shopping. check: in the cart. uncheck: back to needed. need: a staple has run out. stock: a staple is at home, off the list. remove: delete the item for good, staples included.",
+    input_schema: {
+      type: "object",
+      properties: {
+        item_id: { type: "string" },
+        action: { type: "string", enum: ["check", "uncheck", "need", "stock", "remove"] },
+      },
+      required: ["item_id", "action"],
       additionalProperties: false,
     },
   },

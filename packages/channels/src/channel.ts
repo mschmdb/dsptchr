@@ -33,6 +33,11 @@ export type InboundEvent =
       receivedAt: number;
     };
 
+export interface Replacement {
+  text: string;
+  buttons?: Button[][] | undefined;
+}
+
 export interface AckTarget {
   conversation: string;
   messageRef: string;
@@ -43,8 +48,9 @@ export interface Channel {
   // Waits for the next batch of operator events. Events from anyone else are dropped.
   receive(signal?: AbortSignal): Promise<InboundEvent[]>;
   send(message: OutboundMessage): Promise<SentMessage>;
-  // Confirms a button press to the operator with a short note and removes the message's buttons.
-  acknowledge(target: AckTarget, note: string): Promise<void>;
+  // Confirms a button press to the operator with a short note. Without a replacement it
+  // removes the message's buttons; with one it replaces the message's text and buttons.
+  acknowledge(target: AckTarget, note: string, replacement?: Replacement): Promise<void>;
 }
 
 export const MAX_BUTTON_DATA_BYTES = 64;

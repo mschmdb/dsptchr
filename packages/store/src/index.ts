@@ -9,6 +9,7 @@ import { inboxRepo } from "./inbox.ts";
 import { observationRepo } from "./observations.ts";
 import { cursorRepo, flagRepo } from "./kv.ts";
 import { reminderRepo } from "./reminders.ts";
+import { shoppingRepo } from "./shopping.ts";
 import { todoRepo } from "./todos.ts";
 import { triageRepo } from "./triage.ts";
 
@@ -16,6 +17,7 @@ export { AuditTamperError, type AuditEntry, type AuditInput, type AuditLog } fro
 export type { Reminder, ReminderState, ReminderRepo } from "./reminders.ts";
 export type { StoredAction, ActionRepo } from "./actions.ts";
 export type { TodoRepo } from "./todos.ts";
+export type { AddShoppingItem, ShoppingRepo } from "./shopping.ts";
 export type { TriageInput, TriageItem, TriageRepo, TriageState } from "./triage.ts";
 export type { Features, NotifiedItem, Rule, Verdict } from "./feedback.ts";
 export type { InboxEntry, InboxRepo, InboxState } from "./inbox.ts";
@@ -49,6 +51,7 @@ export function openStore(options: StoreOptions) {
     feedback: feedbackRepo(db, audit, now),
     rules: ruleRepo(db, audit, now, newId),
     triage: triageRepo(db, now, newId),
+    shopping: shoppingRepo(db, audit, now, newId),
     transaction: <T>(fn: () => T): T => db.transaction(fn),
     // Consistent snapshot of the whole database; refuses to overwrite an existing file.
     backup: (target: string): void => {

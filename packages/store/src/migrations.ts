@@ -163,4 +163,16 @@ export const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX triage_state ON triage_queue(state, created_at);
   `,
+  `
+  CREATE TABLE shopping_items (
+    id TEXT PRIMARY KEY,
+    key TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    quantity TEXT,
+    kind TEXT NOT NULL CHECK (kind IN ('once', 'every', 'empty')),
+    state TEXT NOT NULL CHECK (state IN ('needed', 'checked', 'stocked')),
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  `,
 ];

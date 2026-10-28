@@ -9,6 +9,19 @@ export interface DispatchInput {
   actor: string;
 }
 
+export class ActionFailedError extends Error {
+  override name = "ActionFailedError";
+}
+
+// A failed action makes the handler throw, so the inbox retries the whole event.
+// Every dispatch uses a key derived from the event ID, so completed steps do not repeat.
+export function ensureNotFailed(action: StoredAction): StoredAction {
+  if (action.state === "failed") {
+    throw new ActionFailedError(`action ${action.type} failed`);
+  }
+  return action;
+}
+
 export interface Dispatcher {
   dispatch(input: DispatchInput): Promise<StoredAction>;
 }

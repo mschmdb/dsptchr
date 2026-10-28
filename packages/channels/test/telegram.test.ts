@@ -205,6 +205,58 @@ describe("telegramChannel.acknowledge", () => {
   });
 });
 
+describe("telegramChannel.acknowledge with replacement", () => {
+  it("answers the callback and replaces text and buttons", async () => {
+    const { channel, calls } = setup({});
+    await channel.acknowledge({ conversation: `${GROUP}`, messageRef: "77", callbackRef: "cb-1" }, "Checked", {
+      text: "List",
+      buttons: [[{ label: "Milch", data: "shop:t:1" }]],
+    });
+    expect(calls).toEqual([
+      { method: "answerCallbackQuery", body: { callback_query_id: "cb-1", text: "Checked" } },
+      {
+        method: "editMessageText",
+        body: {
+          chat_id: GROUP,
+          message_id: 77,
+          text: "List",
+          link_preview_options: { is_disabled: true },
+          reply_markup: { inline_keyboard: [[{ text: "Milch", callback_data: "shop:t:1" }]] },
+        },
+      },
+    ]);
+  });
+
+  it("treats an unchanged message as success", async () => {
+    const { channel } = setup({
+      editMessageText: [{ ok: false, error_code: 400, description: "Bad Request: message is not modified" }],
+    });
+    await expect(
+      channel.acknowledge({ conversation: `${GROUP}`, messageRef: "77", callbackRef: "cb-1" }, "x", { text: "List" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("still fails on other edit errors", async () => {
+    const { channel } = setup({
+      editMessageText: [{ ok: false, error_code: 400, description: "Bad Request: message to edit not found" }],
+    });
+    await expect(
+      channel.acknowledge({ conversation: `${GROUP}`, messageRef: "77", callbackRef: "cb-1" }, "x", { text: "List" }),
+    ).rejects.toThrow(TelegramError);
+  });
+
+  it("rejects oversized button data before calling the API", async () => {
+    const { channel, calls } = setup({});
+    await expect(
+      channel.acknowledge({ conversation: `${GROUP}`, messageRef: "77", callbackRef: "cb-1" }, "x", {
+        text: "List",
+        buttons: [[{ label: "x", data: "d".repeat(65) }]],
+      }),
+    ).rejects.toThrow(/exceeds/);
+    expect(calls).toEqual([]);
+  });
+});
+
 describe("telegramChannel.acknowledge allowlist", () => {
   it("refuses to acknowledge in a foreign chat", async () => {
     const { channel, calls } = setup({});

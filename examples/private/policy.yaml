@@ -13,3 +13,10 @@ actions:
   knowledge.write:
     level: auto
     rate_limit: { max: 20, per_minutes: 60 }
+  shopping.add:
+    level: auto
+    rate_limit: { max: 100, per_minutes: 60 }
+  shopping.update:
+    level: auto
+  shopping.finish:
+    level: auto

@@ -1,10 +1,11 @@
 import type { InboundEvent } from "@dsptchr/channels";
 import { parseDue, splitTodoInput } from "@dsptchr/core";
-import type { Store, StoredAction } from "@dsptchr/store";
-import type { Dispatcher } from "./dispatch.ts";
+import type { Store } from "@dsptchr/store";
+import { ensureNotFailed, type Dispatcher } from "./dispatch.ts";
 import type { OrchestratorOutcome } from "./orchestrator.ts";
 import { parseCommand, runCommand, type CommandSources } from "./commands.ts";
 import { formatDue } from "./format.ts";
+import { createShoppingHandler, parseShoppingCommand } from "./shopping.ts";
 
 export interface OperatorHandlerDeps {
   store: Store;
@@ -29,18 +30,7 @@ const RULE_BUTTON = /^rule:([^:]{1,64}):(on|off)$/;
 const ACTOR = "operator";
 const MAX_NOTE = 120;
 
-export class ActionFailedError extends Error {
-  override name = "ActionFailedError";
-}
-
-// A failed action makes the handler throw, so the inbox retries the whole event.
-// Every dispatch uses a key derived from the event ID, so completed steps do not repeat.
-function ensureNotFailed(action: StoredAction): StoredAction {
-  if (action.state === "failed") {
-    throw new ActionFailedError(`action ${action.type} failed`);
-  }
-  return action;
-}
+export { ActionFailedError } from "./dispatch.ts";
 
 // The narrowest stable feature set to mute, and how to say it.
 function muteRule(source: string, features: Record<string, string>): { match: Record<string, string>; description: string } {
@@ -74,6 +64,8 @@ export function createOperatorHandler({ store, dispatcher, timeZone, now, orches
       }),
     );
 
+  const shopping = createShoppingHandler({ store, dispatcher, actor: ACTOR });
+
   async function handleText(event: Extract<InboundEvent, { kind: "text" }>): Promise<void> {
     const word = event.text.trim().toLowerCase();
     if (STOP_WORDS.has(word)) {
@@ -87,6 +79,12 @@ export function createOperatorHandler({ store, dispatcher, timeZone, now, orches
     if (START_WORDS.has(word)) {
       if (store.flags.isPaused()) store.flags.setPaused(false, ACTOR);
       await reply(event, "Resumed.");
+      return;
+    }
+
+    const shoppingArgs = parseShoppingCommand(event.text);
+    if (shoppingArgs !== undefined) {
+      await shopping.command(event, shoppingArgs);
       return;
     }
 
@@ -204,6 +202,7 @@ export function createOperatorHandler({ store, dispatcher, timeZone, now, orches
   async function handleButton(event: Extract<InboundEvent, { kind: "button" }>): Promise<void> {
     const feedback = FEEDBACK_BUTTON.exec(event.data);
     if (feedback !== null) return handleFeedback(event, feedback[1] ?? "", feedback[2] ?? "");
+    if (event.data.startsWith("shop:")) return shopping.button(event);
     const ruleDecision = RULE_BUTTON.exec(event.data);
     if (ruleDecision !== null) return handleRule(event, ruleDecision[1] ?? "", ruleDecision[2] ?? "");
     const match = BUTTON.exec(event.data);

@@ -11,7 +11,7 @@ import {
   type TriageItemRef,
 } from "@dsptchr/agents";
 import type { InboundEvent } from "@dsptchr/channels";
-import { wallClockOf, wallClockToUtc } from "@dsptchr/core";
+import { nextShoppingState, ShoppingTransitionError, wallClockOf, wallClockToUtc } from "@dsptchr/core";
 import type { Store, StoredAction } from "@dsptchr/store";
 import { sanitizeUntrusted } from "@dsptchr/watchers";
 import type { Dispatcher } from "./dispatch.ts";
@@ -89,6 +89,11 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     if ((store.orchestratorEvents.get(event.id)?.writes.length ?? 0) >= MAX_WRITES_PER_MESSAGE) {
       throw new ToolInputError(`limit of ${MAX_WRITES_PER_MESSAGE} changes per message reached`);
     }
+    return dispatchUncounted(event, type, payload);
+  }
+
+  // Like dispatch(), but the caller records one write for a whole batch.
+  async function dispatchUncounted(event: InboundEvent, type: string, payload: unknown): Promise<StoredAction> {
     const digest = createHash("sha256").update(JSON.stringify([type, payload])).digest("hex").slice(0, 16);
     const action = await dispatcher.dispatch({ type, payload, idempotencyKey: `${event.id}:orch:${digest}`, actor: ACTOR });
     if (action.state === "failed") throw new ActionFailedError(`action ${type} failed`);
@@ -105,6 +110,17 @@ export function createOrchestrator(deps: OrchestratorDeps) {
               text: deps.isMailTodo?.(t.id) === true ? "(todo from mail)" : t.text,
               state: t.state,
               ...(t.dueAt === undefined ? {} : { due: formatDue(t.dueAt, timeZone) }),
+            })),
+          });
+        }
+        if (scope === "shopping") {
+          return JSON.stringify({
+            items: store.shopping.list().map((i) => ({
+              id: i.id,
+              name: i.name,
+              ...(i.quantity === undefined ? {} : { quantity: i.quantity }),
+              kind: i.kind,
+              state: i.state,
             })),
           });
         }
@@ -223,6 +239,54 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           event_ === "snooze" && dueAt !== undefined
             ? `Snoozed "${shown}" until ${formatDue(dueAt, timeZone)}.`
             : `${event_ === "complete" ? "Completed" : "Dropped"} "${shown}".`;
+        store.orchestratorEvents.addWrite(event.id, summary);
+        return summary;
+      },
+
+      // One call counts as one change: shopping items only touch the local list and are easy to undo.
+      async add_to_shopping_list({ items }) {
+        const before = store.orchestratorEvents.get(event.id)?.writes.length ?? 0;
+        if (before >= MAX_WRITES_PER_MESSAGE) throw new ToolInputError(`limit of ${MAX_WRITES_PER_MESSAGE} changes per message reached`);
+        const added: string[] = [];
+        for (const item of items) {
+          const payload = {
+            name: item.name,
+            ...(item.quantity === null || item.quantity === undefined ? {} : { quantity: item.quantity }),
+            ...(item.kind === null || item.kind === undefined ? {} : { kind: item.kind }),
+          };
+          const action = await dispatchUncounted(event, "shopping.add", payload);
+          if (action.state !== "executed") break;
+          added.push(payload.quantity === undefined ? payload.name : `${payload.name} (${payload.quantity})`);
+        }
+        if (added.length === 0) return "Not allowed right now.";
+        const summary = `Added to the shopping list: ${added.join(", ")}.`;
+        store.orchestratorEvents.addWrite(event.id, summary);
+        return added.length === items.length ? summary : `${summary} The rest was not allowed right now.`;
+      },
+
+      async update_shopping_item({ item_id, action: change }) {
+        const item = store.shopping.get(item_id);
+        if (item === undefined) throw new ToolInputError(`shopping item ${item_id} not found`);
+        if (change !== "remove") {
+          if (change === "stock" && item.kind === "once") {
+            throw new ToolInputError("a one-off item cannot be in stock; remove it instead");
+          }
+          try {
+            nextShoppingState(item.kind, item.state, change);
+          } catch (error) {
+            if (error instanceof ShoppingTransitionError) throw new ToolInputError(error.message);
+            throw error;
+          }
+        }
+        const action = await dispatch(event, "shopping.update", { itemId: item_id, event: change });
+        if (action.state !== "executed") return `Not allowed right now (${action.state}).`;
+        const summary = {
+          check: `Checked "${item.name}" on the shopping list.`,
+          uncheck: `Put "${item.name}" back on the shopping list.`,
+          need: `Put "${item.name}" on the shopping list.`,
+          stock: `Marked "${item.name}" as in stock.`,
+          remove: `Removed "${item.name}" from the shopping list.`,
+        }[change];
         store.orchestratorEvents.addWrite(event.id, summary);
         return summary;
       },
