@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Button, InboundEvent } from "@dsptchr/channels";
 import { MAX_SHOPPING_NAME, MAX_SHOPPING_QUANTITY, parseShoppingInput, type ShoppingEvent, type ShoppingItem } from "@dsptchr/core";
 import type { Store } from "@dsptchr/store";
@@ -115,7 +116,9 @@ export function createShoppingHandler({ store, dispatcher, actor }: ShoppingHand
           note: shorten(note),
           replacement: view,
         },
-        idempotencyKey: `${event.id}:ack`,
+        // A retry after a failed ack redraws the current list; keying by content keeps a
+        // stale view from an earlier attempt from being sent again.
+        idempotencyKey: `${event.id}:ack:${createHash("sha256").update(JSON.stringify([note, view])).digest("hex").slice(0, 16)}`,
         actor,
       }),
     );
@@ -147,7 +150,7 @@ export function createShoppingHandler({ store, dispatcher, actor }: ShoppingHand
     const lines = [
       added.length === 0 ? "Nothing added." : `On the list: ${added.join(", ")}`,
       ...(rejected.length === 0 ? [] : [`Too long (name max ${MAX_SHOPPING_NAME}, amount max ${MAX_SHOPPING_QUANTITY} characters): ${rejected.map(shorten).join(", ")}`]),
-      ...(items.length > MAX_ITEMS_PER_MESSAGE ? [`Only the first ${MAX_ITEMS_PER_MESSAGE} items were added.`] : []),
+      ...(items.length > MAX_ITEMS_PER_MESSAGE ? [`Only the first ${MAX_ITEMS_PER_MESSAGE} items were processed.`] : []),
     ];
     await send(event, { text: lines.join("\n") });
   }
@@ -193,10 +196,12 @@ export function createShoppingHandler({ store, dispatcher, actor }: ShoppingHand
         return;
       }
       const action = await update(event, item.id, change);
+      // On a retry the stored action holds the change that really ran, not the one derived from today's state.
+      const ran = (action.payload as { event?: ShoppingEvent }).event;
       const note =
         action.state !== "executed" ? "Not allowed right now"
-        : change === "check" ? `${item.name} ✓`
-        : change === "uncheck" ? `${item.name} back on the list`
+        : ran === "check" ? `${item.name} ✓`
+        : ran === "uncheck" ? `${item.name} back on the list`
         : `${item.name} is on the list`;
       await acknowledge(event, note, redraw());
     },

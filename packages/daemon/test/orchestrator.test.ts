@@ -444,6 +444,22 @@ describe("orchestrator shopping list", () => {
     expect(h.sent.at(-1)?.text).toBe("Ok.\n\n✓ Added to the shopping list: Kapern, Skyr (4x), Backpapier.");
   });
 
+  it("keeps a receipt for items added before a failure in the same batch", async () => {
+    const h = setup([
+      { tool: "add_to_shopping_list", input: { items: [{ name: "Milch" }, { name: "Eier" }] } },
+      new Error("model down"),
+    ]);
+    const executor = h.dispatcher.dispatch.bind(h.dispatcher);
+    let calls = 0;
+    h.dispatcher.dispatch = async (input) => {
+      if (input.type === "shopping.add" && ++calls === 2) throw new Error("disk full");
+      return executor(input);
+    };
+    const event = text("Milch und Eier");
+    await expect(h.orchestrator.handle(event)).rejects.toThrow(/disk full/);
+    expect(h.store.orchestratorEvents.get(event.id)?.writes).toEqual(["Added to the shopping list: Milch."]);
+  });
+
   it("reads the shopping list with ids, kinds and states", async () => {
     const h = setup([{ tool: "read_state", input: { scope: "shopping" } }, { text: "Two items." }]);
     h.store.shopping.add({ name: "Milch", actor: "operator" });

@@ -248,20 +248,26 @@ export function createOrchestrator(deps: OrchestratorDeps) {
         const before = store.orchestratorEvents.get(event.id)?.writes.length ?? 0;
         if (before >= MAX_WRITES_PER_MESSAGE) throw new ToolInputError(`limit of ${MAX_WRITES_PER_MESSAGE} changes per message reached`);
         const added: string[] = [];
-        for (const item of items) {
-          const payload = {
-            name: item.name,
-            ...(item.quantity === null || item.quantity === undefined ? {} : { quantity: item.quantity }),
-            ...(item.kind === null || item.kind === undefined ? {} : { kind: item.kind }),
-          };
-          const action = await dispatchUncounted(event, "shopping.add", payload);
-          if (action.state !== "executed") break;
-          added.push(payload.quantity === undefined ? payload.name : `${payload.name} (${payload.quantity})`);
+        const summary = (): string => `Added to the shopping list: ${added.join(", ")}.`;
+        try {
+          for (const item of items) {
+            const payload = {
+              name: item.name,
+              ...(item.quantity === null || item.quantity === undefined ? {} : { quantity: item.quantity }),
+              ...(item.kind === null || item.kind === undefined ? {} : { kind: item.kind }),
+            };
+            const action = await dispatchUncounted(event, "shopping.add", payload);
+            if (action.state !== "executed") break;
+            added.push(payload.quantity === undefined ? payload.name : `${payload.name} (${payload.quantity})`);
+          }
+        } catch (error) {
+          // Items added before the failure stay added; they still get a receipt.
+          if (added.length > 0) store.orchestratorEvents.addWrite(event.id, summary());
+          throw error;
         }
         if (added.length === 0) return "Not allowed right now.";
-        const summary = `Added to the shopping list: ${added.join(", ")}.`;
-        store.orchestratorEvents.addWrite(event.id, summary);
-        return added.length === items.length ? summary : `${summary} The rest was not allowed right now.`;
+        store.orchestratorEvents.addWrite(event.id, summary());
+        return added.length === items.length ? summary() : `${summary()} The rest was not allowed right now.`;
       },
 
       async update_shopping_item({ item_id, action: change }) {

@@ -37,7 +37,7 @@ describe("/einkauf with items", () => {
     const items = Array.from({ length: 25 }, (_, i) => `Item ${i + 1}`).join(", ");
     await h.handler.handle(text(`/einkauf ${items}`));
     expect(h.store.shopping.list()).toHaveLength(20);
-    expect(h.sent[0]?.text).toMatch(/Only the first 20 items were added\.$/);
+    expect(h.sent[0]?.text).toMatch(/Only the first 20 items were processed\.$/);
   });
 
   it("does not add items twice when the event is redelivered", async () => {
@@ -141,6 +141,21 @@ describe("shopping buttons", () => {
 
     await handler.handle(button("shop:done"));
     expect(h.acks[1]?.note).toBe("Not allowed right now");
+  });
+
+  it("redraws the current list when a failed tap is retried after another tap", async () => {
+    const h = setup();
+    const a = h.store.shopping.add({ name: "A", actor: "test" });
+    const b = h.store.shopping.add({ name: "B", actor: "test" });
+    const tapA = button(`shop:t:${a.id}:0`);
+    h.failSends.value = true;
+    await expect(h.handler.handle(tapA)).rejects.toThrow(/failed/);
+    h.failSends.value = false;
+    await h.handler.handle(button(`shop:t:${b.id}:0`));
+    await h.handler.handle(tapA);
+
+    expect(h.store.shopping.list().map((i) => i.state)).toEqual(["checked", "checked"]);
+    expect(h.acks.at(-1)).toMatchObject({ note: "A ✓", replacement: { text: "Shopping list (0 open, 2 in cart)\n✅ A\n✅ B" } });
   });
 
   it("rejects unknown shopping buttons", async () => {
