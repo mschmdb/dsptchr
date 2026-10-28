@@ -58,15 +58,21 @@ export interface ParsedShoppingItem {
   quantity?: string;
 }
 
-const QUANTITY = /^(\d+(?:[.,]\d+)?\s*(?:x|×|g|kg|ml|l|stk\.?|pck\.?)?)\s+(\S.*)$/i;
+const UNITS = "x|×|g|kg|ml|l|stk\\.?|stück|pck\\.?|packung(?:en)?|dosen?|gl(?:a|ä)s(?:er)?|flaschen?|becher|bund|beutel";
+const QUANTITY = new RegExp(`^(\\d+(?:[.,]\\d+)?(?:\\s*(?:${UNITS})(?!\\p{L}))?)\\s+(\\S.*)$`, "iu");
+// "- ", "* ", "• ", "– ", "1. ", "2) " and checkbox markers from pasted lists.
+const LIST_MARKER = /^(?:[-*•–—]\s+|\d{1,2}[.)]\s+)?(?:\[[ xX]?\]\s*)?/;
 
 // "Milch, 2 Gurken, 1,5 l Saft" -> items. A comma between digits is a decimal comma.
+// Multi-line input splits at line breaks only.
 // Overlong names and quantities are rejected, not cut.
 export function parseShoppingInput(text: string): { items: ParsedShoppingItem[]; rejected: string[] } {
   const items: ParsedShoppingItem[] = [];
   const rejected: string[] = [];
-  for (const part of text.split(/(?<!\d),|,(?!\d)|[;\n]/)) {
-    const clean = part.trim().replace(/\s+/g, " ");
+  // A pasted list has one item per line, and its lines may contain commas.
+  const parts = text.includes("\n") ? text.split("\n") : text.split(/(?<!\d),|,(?!\d)|;/);
+  for (const part of parts) {
+    const clean = part.trim().replace(LIST_MARKER, "").replace(/\s+/g, " ").trim();
     if (clean === "") continue;
     const match = QUANTITY.exec(clean);
     const item: ParsedShoppingItem =

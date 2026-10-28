@@ -107,6 +107,10 @@ export function createExecutor({ store, channel, knowledge }: ExecutorDeps): Exe
     }),
 
     "shopping.update": local(shoppingUpdateSchema, (payload) => {
+      if (payload.event === "edit") {
+        const item = store.shopping.edit(payload.itemId, { name: payload.name, quantity: payload.quantity }, ACTOR);
+        return { itemId: item.id, state: item.state };
+      }
       if (payload.event === "remove") {
         store.shopping.remove(payload.itemId, ACTOR);
         return { itemId: payload.itemId, state: "removed" };

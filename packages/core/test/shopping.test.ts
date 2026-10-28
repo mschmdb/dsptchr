@@ -11,13 +11,8 @@ import {
 } from "../src/shopping.ts";
 
 describe("parseShoppingInput", () => {
-  it("splits on commas, semicolons and line breaks", () => {
-    expect(parseShoppingInput("Milch, Eier; Backpapier\nKapern").items.map((i) => i.name)).toEqual([
-      "Milch",
-      "Eier",
-      "Backpapier",
-      "Kapern",
-    ]);
+  it("splits a single line on commas and semicolons", () => {
+    expect(parseShoppingInput("Milch, Eier; Backpapier").items.map((i) => i.name)).toEqual(["Milch", "Eier", "Backpapier"]);
   });
 
   it("reads a leading quantity with an optional unit", () => {
@@ -26,6 +21,29 @@ describe("parseShoppingInput", () => {
       { name: "Hack", quantity: "500 g" },
       { name: "Skyr", quantity: "4x" },
       { name: "Milch", quantity: "1,5 l" },
+    ]);
+  });
+
+  it("splits multi-line input only at line breaks, so commas stay inside an item", () => {
+    expect(parseShoppingInput("800 g Hähnchen\n\n- 2 Dosen weiße Bohnen, etwa 480 g\n- rotwein").items).toEqual([
+      { name: "Hähnchen", quantity: "800 g" },
+      { name: "weiße Bohnen, etwa 480 g", quantity: "2 Dosen" },
+      { name: "rotwein" },
+    ]);
+  });
+
+  it.each(["- Milch", "* Milch", "• Milch", "– Milch", "1. Milch", "2) Milch", "[ ] Milch", "- [x] Milch"])(
+    "strips the list marker in %j",
+    (line) => {
+      expect(parseShoppingInput(`${line}\nEier`).items[0]).toEqual({ name: "Milch" });
+    },
+  );
+
+  it("reads packaging words as part of the quantity", () => {
+    expect(parseShoppingInput("1 Packung Asia-Gemüse, 2 Dosen Kokosmilch, 1 Bund Petersilie").items).toEqual([
+      { name: "Asia-Gemüse", quantity: "1 Packung" },
+      { name: "Kokosmilch", quantity: "2 Dosen" },
+      { name: "Petersilie", quantity: "1 Bund" },
     ]);
   });
 
