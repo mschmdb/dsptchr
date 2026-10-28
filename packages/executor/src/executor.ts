@@ -2,7 +2,16 @@ import type { Channel } from "@dsptchr/channels";
 import { draftHash } from "@dsptchr/gate";
 import type { StoredAction, Store } from "@dsptchr/store";
 import type { z } from "zod";
-import { knowledgeWriteSchema, messageAckSchema, messageSendSchema, todoCreateSchema, todoUpdateSchema } from "./schemas.ts";
+import {
+  knowledgeWriteSchema,
+  messageAckSchema,
+  messageSendSchema,
+  shoppingAddSchema,
+  shoppingFinishSchema,
+  shoppingUpdateSchema,
+  todoCreateSchema,
+  todoUpdateSchema,
+} from "./schemas.ts";
 
 export class ExecutorError extends Error {
   override name = "ExecutorError";
@@ -47,6 +56,7 @@ export function createExecutor({ store, channel, knowledge }: ExecutorDeps): Exe
       await channel.acknowledge(
         { conversation: payload.conversation, messageRef: payload.messageRef, callbackRef: payload.callbackRef },
         payload.note,
+        payload.replacement,
       );
       return {};
     }),
@@ -90,6 +100,22 @@ export function createExecutor({ store, channel, knowledge }: ExecutorDeps): Exe
       }
       return { todoId: todo.id, state: todo.state };
     }),
+
+    "shopping.add": local(shoppingAddSchema, (payload) => {
+      const item = store.shopping.add({ ...payload, actor: ACTOR });
+      return { itemId: item.id, state: item.state };
+    }),
+
+    "shopping.update": local(shoppingUpdateSchema, (payload) => {
+      if (payload.event === "remove") {
+        store.shopping.remove(payload.itemId, ACTOR);
+        return { itemId: payload.itemId, state: "removed" };
+      }
+      const item = store.shopping.transition(payload.itemId, payload.event, ACTOR);
+      return { itemId: item.id, state: item.state };
+    }),
+
+    "shopping.finish": local(shoppingFinishSchema, () => store.shopping.finishTrip(ACTOR)),
   };
 
   const succeed = (actionId: string, result: Result): StoredAction =>

@@ -425,3 +425,79 @@ describe("orchestrator", () => {
     expect(h.store.todos.listActive()).toHaveLength(1);
   });
 });
+
+describe("orchestrator shopping list", () => {
+  it("adds several items in one call as one change, staples included", async () => {
+    const h = setup([
+      {
+        tool: "add_to_shopping_list",
+        input: { items: [{ name: "Kapern", quantity: null, kind: "empty" }, { name: "Skyr", quantity: "4x", kind: "every" }, { name: "Backpapier" }] },
+      },
+      { text: "Ok." },
+    ]);
+    await h.orchestrator.handle(text("Kapern sind alle, Skyr immer, und Backpapier"));
+    expect(h.store.shopping.list()).toMatchObject([
+      { name: "Kapern", kind: "empty", state: "needed" },
+      { name: "Skyr", kind: "every", quantity: "4x" },
+      { name: "Backpapier", kind: "once" },
+    ]);
+    expect(h.sent.at(-1)?.text).toBe("Ok.\n\n✓ Added to the shopping list: Kapern, Skyr (4x), Backpapier.");
+  });
+
+  it("keeps a receipt for items added before a failure in the same batch", async () => {
+    const h = setup([
+      { tool: "add_to_shopping_list", input: { items: [{ name: "Milch" }, { name: "Eier" }] } },
+      new Error("model down"),
+    ]);
+    const executor = h.dispatcher.dispatch.bind(h.dispatcher);
+    let calls = 0;
+    h.dispatcher.dispatch = async (input) => {
+      if (input.type === "shopping.add" && ++calls === 2) throw new Error("disk full");
+      return executor(input);
+    };
+    const event = text("Milch und Eier");
+    await expect(h.orchestrator.handle(event)).rejects.toThrow(/disk full/);
+    expect(h.store.orchestratorEvents.get(event.id)?.writes).toEqual(["Added to the shopping list: Milch."]);
+  });
+
+  it("reads the shopping list with ids, kinds and states", async () => {
+    const h = setup([{ tool: "read_state", input: { scope: "shopping" } }, { text: "Two items." }]);
+    h.store.shopping.add({ name: "Milch", actor: "operator" });
+    await h.orchestrator.handle(text("was steht auf der Einkaufsliste?"));
+    expect(JSON.parse(resultOf(h.createMessage.requests[1]))).toMatchObject({
+      items: [{ id: expect.any(String), name: "Milch", kind: "once", state: "needed" }],
+    });
+  });
+
+  it("updates and removes items through the gate", async () => {
+    const steps: Step[] = [];
+    const h = setup(steps);
+    const milk = h.store.shopping.add({ name: "Milch", actor: "operator" });
+    const salt = h.store.shopping.add({ name: "Salz", kind: "empty", actor: "operator" });
+    steps.push(
+      { tool: "update_shopping_item", input: { item_id: milk.id, action: "remove" } },
+      { tool: "update_shopping_item", input: { item_id: salt.id, action: "stock" } },
+      { text: "Done." },
+    );
+    await h.orchestrator.handle(text("Milch streichen, Salz ist noch da"));
+    expect(h.store.shopping.get(milk.id)).toBeUndefined();
+    expect(h.store.shopping.get(salt.id)?.state).toBe("stocked");
+    expect(h.sent.at(-1)?.text).toBe("Done.\n\n✓ Removed \"Milch\" from the shopping list.\n✓ Marked \"Salz\" as in stock.");
+  });
+
+  it("returns fixable errors for unknown items and invalid transitions", async () => {
+    const steps: Step[] = [];
+    const h = setup(steps);
+    const milk = h.store.shopping.add({ name: "Milch", actor: "operator" });
+    steps.push(
+      { tool: "update_shopping_item", input: { item_id: "nope", action: "check" } },
+      { tool: "update_shopping_item", input: { item_id: milk.id, action: "stock" } },
+      { text: "Sorry." },
+    );
+    await h.orchestrator.handle(text("x"));
+    expect(resultOf(h.createMessage.requests[1])).toMatch(/not found/);
+    expect(resultOf(h.createMessage.requests[2])).toMatch(/one-off item cannot be in stock/);
+    expect(h.store.shopping.get(milk.id)?.state).toBe("needed");
+  });
+});
+

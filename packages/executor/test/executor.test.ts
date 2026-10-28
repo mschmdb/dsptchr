@@ -94,6 +94,22 @@ describe("message.ack", () => {
     expect(acks).toEqual([{ target: { conversation: "-1002", messageRef: "77", callbackRef: "cb-1" }, note: "Done" }]);
   });
 
+  it("passes a replacement for the message text and buttons", async () => {
+    const acks: unknown[] = [];
+    const { channel } = fakeChannel();
+    channel.acknowledge = async (_target, note, replacement) => {
+      acks.push({ note, replacement });
+    };
+    const executor = createExecutor({ store, channel });
+    const replacement = { text: "List", buttons: [[{ label: "Milch", data: "shop:t:1" }]] };
+    const payload = { conversation: "-1002", messageRef: "77", callbackRef: "cb-1", note: "Checked", replacement };
+
+    const result = await executor.execute(approved("message.ack", payload).id);
+
+    expect(result.state).toBe("executed");
+    expect(acks).toEqual([{ note: "Checked", replacement }]);
+  });
+
   it("rejects payloads without a callback reference", async () => {
     const { executor } = setup();
     const result = await executor.execute(approved("message.ack", { conversation: "c", messageRef: "1", note: "x" }).id);
@@ -228,6 +244,72 @@ describe("todo.update", () => {
     const { executor } = setup();
     const result = await executor.execute(approved("todo.update", { todoId: "nope", event: "complete" }).id);
     expect(result).toMatchObject({ state: "failed", result: { error: expect.stringContaining("not found") } });
+  });
+});
+
+describe("shopping.add", () => {
+  it("adds an item and returns its id", async () => {
+    const { executor } = setup();
+    const result = await executor.execute(approved("shopping.add", { name: "Skyr", quantity: "4x", kind: "every" }).id);
+    expect(result).toMatchObject({ state: "executed", result: { itemId: expect.any(String) } });
+    expect(store.shopping.list()).toMatchObject([{ name: "Skyr", quantity: "4x", kind: "every", state: "needed" }]);
+  });
+
+  it.each([
+    ["empty name", { name: " " }],
+    ["name too long", { name: "x".repeat(61) }],
+    ["unknown kind", { name: "Skyr", kind: "weekly" }],
+    ["unknown field", { name: "Skyr", price: 2 }],
+  ])("fails on invalid payload: %s", async (_name, payload) => {
+    const { executor } = setup();
+    expect((await executor.execute(approved("shopping.add", payload).id)).state).toBe("failed");
+    expect(store.shopping.list()).toEqual([]);
+  });
+});
+
+describe("shopping.update", () => {
+  it("checks an item", async () => {
+    const { executor } = setup();
+    const item = store.shopping.add({ name: "Milch", actor: "test" });
+    const result = await executor.execute(approved("shopping.update", { itemId: item.id, event: "check" }).id);
+    expect(result).toMatchObject({ state: "executed", result: { itemId: item.id, state: "checked" } });
+  });
+
+  it("removes an item", async () => {
+    const { executor } = setup();
+    const item = store.shopping.add({ name: "Milch", actor: "test" });
+    const result = await executor.execute(approved("shopping.update", { itemId: item.id, event: "remove" }).id);
+    expect(result).toMatchObject({ state: "executed", result: { itemId: item.id, state: "removed" } });
+    expect(store.shopping.get(item.id)).toBeUndefined();
+  });
+
+  it("fails on invalid transitions without changing the item", async () => {
+    const { executor } = setup();
+    const item = store.shopping.add({ name: "Milch", actor: "test" });
+    const result = await executor.execute(approved("shopping.update", { itemId: item.id, event: "stock" }).id);
+    expect(result.state).toBe("failed");
+    expect(store.shopping.get(item.id)?.state).toBe("needed");
+  });
+
+  it("fails on unknown items", async () => {
+    const { executor } = setup();
+    expect((await executor.execute(approved("shopping.update", { itemId: "nope", event: "check" }).id)).state).toBe("failed");
+  });
+});
+
+describe("shopping.finish", () => {
+  it("finishes the trip and reports the counts", async () => {
+    const { executor } = setup();
+    const milk = store.shopping.add({ name: "Milch", actor: "test" });
+    store.shopping.add({ name: "Brot", actor: "test" });
+    store.shopping.transition(milk.id, "check", "test");
+    const result = await executor.execute(approved("shopping.finish", {}).id);
+    expect(result).toMatchObject({ state: "executed", result: { bought: 1, open: 1 } });
+  });
+
+  it("rejects any payload fields", async () => {
+    const { executor } = setup();
+    expect((await executor.execute(approved("shopping.finish", { all: true }).id)).state).toBe("failed");
   });
 });
 

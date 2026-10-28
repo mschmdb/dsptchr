@@ -36,11 +36,11 @@ Channel → inbox (SQLite) → operator handler → dispatcher. Free text goes t
 | Package | Responsibility |
 |---|---|
 | `core` | Types, state machines for todos and actions, time zones, due-date parsing |
-| `store` | SQLite (`node:sqlite`): todos, reminders, actions with idempotency keys, inbox, observations, cursors, runs with cost, conversation memory, hash-chained append-only audit log |
+| `store` | SQLite (`node:sqlite`): todos, shopping list, reminders, actions with idempotency keys, inbox, observations, cursors, runs with cost, conversation memory, hash-chained append-only audit log |
 | `watchers` | Source clients, read-only: server health script, GitHub, Proton (mail, calendar), iCloud (CalDAV, CardDAV); untrusted-text sanitizer |
 | `agents` | Orchestrator prompt, tool surface and tool loop; mail reader; pricing |
 | `gate` | Policy (`auto`, `ask`, `never`), rate limits, kill switch, draft hash (protected) |
-| `executor` | One narrow handler per action type: `message.send`, `message.ack`, `todo.create`, `todo.update`, `knowledge.write` (protected) |
+| `executor` | One narrow handler per action type: `message.send`, `message.ack`, `todo.create`, `todo.update`, `knowledge.write`, `shopping.add`, `shopping.update`, `shopping.finish` (protected) |
 | `channels` | Messenger-neutral contract; Telegram adapter (long polling, inline buttons) |
 | `knowledge` | Contract and loader for the operator's knowledge adapter (`docs/knowledge.md`) |
 | `daemon` | Instance loader, inbox, dispatcher, operator handler and commands, monitors, briefings, scheduler, heartbeat, wiring |

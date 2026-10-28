@@ -49,6 +49,8 @@ function tools(overrides: Partial<OrchestratorTools> = {}): OrchestratorTools & 
     search_knowledge: async () => "{}",
     read_knowledge: async () => "{}",
     write_knowledge: async () => "ok",
+    add_to_shopping_list: async () => "added",
+    update_shopping_item: async () => "updated",
     search_calendar: async (input) => {
       calls.push(["search_calendar", input]);
       return JSON.stringify({ events: [] });
@@ -199,7 +201,7 @@ describe("runOrchestrator", () => {
       { role: "assistant", content: "earlier answer" },
       { role: "user", content: `${base.context}\n\nOperator message:\n${base.input}` },
     ]);
-    expect(request?.tools?.map((t) => (t as { name: string }).name)).toEqual(["read_state", "search_calendar", "search_knowledge", "read_knowledge", "write_knowledge", "create_todo", "update_todo"]);
+    expect(request?.tools?.map((t) => (t as { name: string }).name)).toEqual(["read_state", "search_calendar", "search_knowledge", "read_knowledge", "write_knowledge", "create_todo", "update_todo", "add_to_shopping_list", "update_shopping_item"]);
     expect(request?.output_config).toEqual({ effort: "low" });
   });
 

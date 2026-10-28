@@ -18,7 +18,8 @@ const MAX_LINES = 25;
 const MAX_TEXT = 120;
 const COMMAND = /^\/([a-z]+)(?:@\w+)?$/i;
 
-export const HELP = "Commands: /todos, /calendar, /mail, /health, /github, /status. Any other text becomes a todo; add a due date after \" @ \".";
+export const HELP =
+  "Commands: /todos, /einkauf, /calendar, /mail, /health, /github, /status. \"/einkauf Milch, 2 Gurken\" adds to the shopping list. Any other text becomes a todo; add a due date after \" @ \".";
 
 // Fixed, deterministic read-only commands. Free questions need the orchestrator (model).
 export function parseCommand(text: string): string | undefined {

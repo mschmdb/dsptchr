@@ -1,4 +1,4 @@
-import type { AckTarget, Channel, InboundEvent, OutboundMessage } from "@dsptchr/channels";
+import type { AckTarget, Channel, InboundEvent, OutboundMessage, Replacement } from "@dsptchr/channels";
 import { createExecutor } from "@dsptchr/executor";
 import { parsePolicy } from "@dsptchr/gate";
 import { openStore, type Store } from "@dsptchr/store";
@@ -22,13 +22,25 @@ actions:
     level: auto
   todo.update:
     level: auto
+  shopping.add:
+    level: auto
+  shopping.update:
+    level: auto
+  shopping.finish:
+    level: auto
 `);
+
+export interface Ack {
+  target: AckTarget;
+  note: string;
+  replacement?: Replacement;
+}
 
 export interface Harness {
   store: Store;
   clock: { now: number };
   sent: OutboundMessage[];
-  acks: { target: AckTarget; note: string }[];
+  acks: Ack[];
   channel: Channel;
   dispatcher: Dispatcher;
   failSends: { value: boolean };
@@ -38,7 +50,7 @@ export function harness(policy = POLICY): Harness {
   const clock = { now: T0 };
   const store = openStore({ path: ":memory:", now: () => clock.now });
   const sent: OutboundMessage[] = [];
-  const acks: { target: AckTarget; note: string }[] = [];
+  const acks: Ack[] = [];
   const failSends = { value: false };
   const channel: Channel = {
     receive: async () => [],
@@ -47,9 +59,9 @@ export function harness(policy = POLICY): Harness {
       sent.push(message);
       return { conversation: message.conversation ?? "home", messageRef: String(sent.length) };
     },
-    acknowledge: async (target, note) => {
+    acknowledge: async (target, note, replacement) => {
       if (failSends.value) throw new Error("network down");
-      acks.push({ target, note });
+      acks.push(replacement === undefined ? { target, note } : { target, note, replacement });
     },
   };
   const executor = createExecutor({ store, channel, knowledge: { write: async () => '{"revision":"def456"}' } });
