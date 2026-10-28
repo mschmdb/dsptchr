@@ -1,5 +1,5 @@
 import { ToolInputError, type OrchestratorTools } from "@dsptchr/agents";
-import { nextShoppingState, shoppingKey, ShoppingTransitionError } from "@dsptchr/core";
+import { MAX_SHOPPING_NAME, nextShoppingState, shoppingKey, ShoppingTransitionError } from "@dsptchr/core";
 import type { Store, StoredAction } from "@dsptchr/store";
 
 export interface ShoppingToolDeps {
@@ -84,6 +84,7 @@ function validate(store: Store, changes: Change[]): { payload: unknown; done: st
       const quantity = change.quantity === undefined || change.quantity === null ? undefined : change.quantity === "" ? null : change.quantity;
       if (name === undefined && quantity === undefined) throw new ToolInputError(`edit of ${item.id} needs name or quantity`);
       if (name !== undefined) {
+        if (name.normalize("NFC").trim().length > MAX_SHOPPING_NAME) throw new ToolInputError(`name of ${item.id} is too long`);
         const key = shoppingKey(name);
         const clash = store.shopping.list().find((other) => other.id !== item.id && shoppingKey(other.name) === key && !removed.has(other.id));
         if (clash !== undefined || (newKeys.has(key) && newKeys.get(key) !== item.id)) {
@@ -98,7 +99,9 @@ function validate(store: Store, changes: Change[]): { payload: unknown; done: st
         done: `"${item.name}" is now "${quantity === null || (quantity === undefined && item.quantity === undefined) ? shown : `${shown} (${quantity ?? item.quantity})`}"`,
       };
     }
-    if (change.name !== undefined && change.name !== null) throw new ToolInputError("name is only allowed with edit");
+    if ((change.name ?? null) !== null || (change.quantity ?? null) !== null) {
+      throw new ToolInputError("name and quantity are only allowed with edit");
+    }
     if (change.action !== "remove") {
       if (change.action === "stock" && item.kind === "once") {
         throw new ToolInputError("a one-off item cannot be in stock; remove it instead");

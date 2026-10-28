@@ -510,6 +510,7 @@ describe("orchestrator shopping list", () => {
       { tool: "update_shopping_items", input: { changes: [{ item_id: milk.id, action: "stock" }] } },
       { tool: "update_shopping_items", input: { changes: [{ item_id: eggs.id, action: "edit", name: "milch" }] } },
       { tool: "update_shopping_items", input: { changes: [{ item_id: eggs.id, action: "check" }, { item_id: eggs.id, action: "uncheck" }] } },
+
       { text: "Sorry." },
     );
     await h.orchestrator.handle(text("x"));
@@ -517,10 +518,27 @@ describe("orchestrator shopping list", () => {
     expect(resultOf(h.createMessage.requests[2])).toMatch(/one-off item cannot be in stock/);
     expect(resultOf(h.createMessage.requests[3])).toMatch(/already named milch/);
     expect(resultOf(h.createMessage.requests[4])).toMatch(/appears twice/);
+
     expect(h.store.shopping.list().map((i) => [i.name, i.state])).toEqual([
       ["Milch", "needed"],
       ["Eier", "needed"],
     ]);
+  });
+
+  it("rejects quantities on state changes and names that grow too long when normalized", async () => {
+    const steps: Step[] = [];
+    const h = setup(steps);
+    const milk = h.store.shopping.add({ name: "Milch", actor: "operator" });
+    const eggs = h.store.shopping.add({ name: "Eier", actor: "operator" });
+    steps.push(
+      { tool: "update_shopping_items", input: { changes: [{ item_id: eggs.id, action: "check", quantity: "2" }] } },
+      { tool: "update_shopping_items", input: { changes: [{ item_id: milk.id, action: "remove" }, { item_id: eggs.id, action: "edit", name: "\u0344".repeat(31) }] } },
+      { text: "Sorry." },
+    );
+    await h.orchestrator.handle(text("x"));
+    expect(resultOf(h.createMessage.requests[1])).toMatch(/only allowed with edit/);
+    expect(resultOf(h.createMessage.requests[2])).toMatch(/too long/);
+    expect(h.store.shopping.list()).toHaveLength(2);
   });
 
   it("allows a rename onto the name of an item removed in the same call", async () => {
