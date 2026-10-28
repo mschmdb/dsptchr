@@ -1,5 +1,5 @@
 import type { Button, InboundEvent } from "@dsptchr/channels";
-import { MAX_SHOPPING_NAME, parseShoppingInput, type ShoppingEvent, type ShoppingItem } from "@dsptchr/core";
+import { MAX_SHOPPING_NAME, MAX_SHOPPING_QUANTITY, parseShoppingInput, type ShoppingEvent, type ShoppingItem } from "@dsptchr/core";
 import type { Store } from "@dsptchr/store";
 import { ensureNotFailed, type Dispatcher } from "./dispatch.ts";
 
@@ -10,12 +10,14 @@ export interface ShoppingView {
 
 // German and English name for the same command, so the operator can use either.
 const COMMAND = /^\/(?:einkauf|shopping)(?:@\w+)?(?:\s+([\s\S]*))?$/i;
-const BUTTON = /^shop:(?:(t|n):([^:]{1,64})|(done|stock|list))$/;
+// t: toggle item, n: staple needed again (both carry the page to redraw),
+// l: list page, s: stock check page, done: finish the trip.
+const BUTTON = /^shop:(?:(t|n):([^:]{1,40}):(\d{1,3})|(l|s):(\d{1,3})|(done))$/;
 const MAX_ITEMS_PER_MESSAGE = 20;
 const PER_ROW = 3;
-// Telegram allows eight rows; one stays free for the control buttons.
-const MAX_ITEM_BUTTONS = 7 * PER_ROW;
-const MAX_LINES = 60;
+// Telegram allows eight rows; one stays free for the control buttons. With names of at most
+// 60 and quantities of at most 20 characters, one page stays far below 4,096 characters.
+const PAGE_SIZE = 7 * PER_ROW;
 const MAX_SHOWN = 30;
 
 // "/einkauf Milch, Eier" -> "Milch, Eier"; "/einkauf" -> ""; anything else -> undefined.
@@ -34,43 +36,50 @@ function rows(buttons: Button[]): Button[][] {
   return result;
 }
 
-function capped(lines: string[]): string[] {
-  return lines.length <= MAX_LINES ? lines : [...lines.slice(0, MAX_LINES), `… and ${lines.length - MAX_LINES} more`];
+// One page of items plus the navigation buttons for it; the page is clamped to what exists.
+function paginate<T>(all: readonly T[], requested: number, data: (page: number) => string) {
+  const pages = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
+  const page = Math.min(Math.max(0, requested), pages - 1);
+  const nav: Button[] = [
+    ...(page > 0 ? [{ label: "‹ Back", data: data(page - 1) }] : []),
+    ...(page < pages - 1 ? [{ label: "More ›", data: data(page + 1) }] : []),
+  ];
+  return { slice: all.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), page, suffix: pages > 1 ? `, page ${page + 1}/${pages}` : "", nav };
 }
 
-export function renderShoppingList(items: readonly ShoppingItem[]): ShoppingView {
+export function renderShoppingList(items: readonly ShoppingItem[], requestedPage = 0): ShoppingView {
   const shown = items.filter(onList);
   const hasStock = items.some((i) => i.state === "stocked");
-  const stockButton: Button = { label: "Check stock", data: "shop:stock" };
+  const stockButton: Button = { label: "Check stock", data: "shop:s:0" };
   if (shown.length === 0) {
     return hasStock ? { text: "Shopping list is empty.", buttons: [[stockButton]] } : { text: "Shopping list is empty." };
   }
   const open = shown.filter((i) => i.state === "needed").length;
   const inCart = shown.length - open;
-  const header = `Shopping list (${open} open${inCart === 0 ? "" : `, ${inCart} in cart`})`;
-  const lines = shown.map((i) => `${i.state === "checked" ? "✅" : "☐"} ${display(i.name, i.quantity)}`);
-  const overflow = shown.length - MAX_ITEM_BUTTONS;
-  const itemButtons = shown
-    .slice(0, MAX_ITEM_BUTTONS)
-    .map((i) => ({ label: `${i.state === "checked" ? "✅ " : ""}${i.name}`, data: `shop:t:${i.id}` }));
+  const { slice, page, suffix, nav } = paginate(shown, requestedPage, (p) => `shop:l:${p}`);
+  const header = `Shopping list (${open} open${inCart === 0 ? "" : `, ${inCart} in cart`}${suffix})`;
+  const lines = slice.map((i) => `${i.state === "checked" ? "✅" : "☐"} ${display(i.name, i.quantity)}`);
+  const itemButtons = slice.map((i) => ({ label: `${i.state === "checked" ? "✅ " : ""}${i.name}`, data: `shop:t:${i.id}:${page}` }));
   const controls: Button[] = [
+    ...nav,
     ...(inCart > 0 ? [{ label: "Done shopping", data: "shop:done" }] : []),
     ...(hasStock ? [stockButton] : []),
   ];
   return {
-    text: [header, ...capped(lines), ...(overflow > 0 ? [`${overflow} more without a button.`] : [])].join("\n"),
+    text: [header, ...lines].join("\n"),
     buttons: [...rows(itemButtons), ...(controls.length === 0 ? [] : [controls])],
   };
 }
 
-export function renderStockCheck(items: readonly ShoppingItem[]): ShoppingView {
+export function renderStockCheck(items: readonly ShoppingItem[], requestedPage = 0): ShoppingView {
   const stocked = items.filter((i) => i.state === "stocked");
-  const back: Button[] = [{ label: "Back to list", data: "shop:list" }];
-  if (stocked.length === 0) return { text: "Nothing in stock to check.", buttons: [back] };
-  const itemButtons = stocked.slice(0, MAX_ITEM_BUTTONS).map((i) => ({ label: i.name, data: `shop:n:${i.id}` }));
+  const back: Button = { label: "Back to list", data: "shop:l:0" };
+  if (stocked.length === 0) return { text: "Nothing in stock to check.", buttons: [[back]] };
+  const { slice, page, suffix, nav } = paginate(stocked, requestedPage, (p) => `shop:s:${p}`);
+  const itemButtons = slice.map((i) => ({ label: i.name, data: `shop:n:${i.id}:${page}` }));
   return {
-    text: ["Tap what has run out. It goes back on the list.", ...capped(stocked.map((i) => `- ${i.name}`))].join("\n"),
-    buttons: [...rows(itemButtons), back],
+    text: [`Tap what has run out. It goes back on the list.${suffix === "" ? "" : ` (${suffix.slice(2)})`}`, ...slice.map((i) => `- ${i.name}`)].join("\n"),
+    buttons: [...rows(itemButtons), [...nav, back]],
   };
 }
 
@@ -137,7 +146,7 @@ export function createShoppingHandler({ store, dispatcher, actor }: ShoppingHand
     }
     const lines = [
       added.length === 0 ? "Nothing added." : `On the list: ${added.join(", ")}`,
-      ...(rejected.length === 0 ? [] : [`Too long (max ${MAX_SHOPPING_NAME} characters): ${rejected.map(shorten).join(", ")}`]),
+      ...(rejected.length === 0 ? [] : [`Too long (name max ${MAX_SHOPPING_NAME}, amount max ${MAX_SHOPPING_QUANTITY} characters): ${rejected.map(shorten).join(", ")}`]),
       ...(items.length > MAX_ITEMS_PER_MESSAGE ? [`Only the first ${MAX_ITEMS_PER_MESSAGE} items were added.`] : []),
     ];
     await send(event, { text: lines.join("\n") });
@@ -159,42 +168,51 @@ export function createShoppingHandler({ store, dispatcher, actor }: ShoppingHand
         await acknowledge(event, "Unknown action", renderShoppingList(store.shopping.list()));
         return;
       }
-      const [, kind, itemId = "", control] = match;
-      if (control !== undefined) return controlButton(event, control);
+      const [, kind, itemId = "", itemPage, view, viewPage, done] = match;
+      if (done !== undefined) return finish(event);
+      if (view !== undefined) {
+        const page = Number(viewPage);
+        await (view === "s"
+          ? acknowledge(event, "Stock check", renderStockCheck(store.shopping.list(), page))
+          : acknowledge(event, "Shopping list", renderShoppingList(store.shopping.list(), page)));
+        return;
+      }
 
+      const page = Number(itemPage);
+      const redraw = (): ShoppingView =>
+        kind === "n" ? renderStockCheck(store.shopping.list(), page) : renderShoppingList(store.shopping.list(), page);
       const item = store.shopping.get(itemId);
-      if (item === undefined) {
-        await acknowledge(event, "No longer on the list", renderShoppingList(store.shopping.list()));
+      const change: ShoppingEvent | undefined =
+        item === undefined ? undefined
+        : kind === "n" ? (item.state === "stocked" ? "need" : undefined)
+        : item.state === "needed" ? "check"
+        : item.state === "checked" ? "uncheck"
+        : undefined;
+      if (item === undefined || change === undefined) {
+        await acknowledge(event, kind === "n" && item !== undefined ? `${item.name} is on the list` : "No longer on the list", redraw());
         return;
       }
-      if (kind === "n") {
-        if (item.state === "stocked") await update(event, item.id, "need");
-        await acknowledge(event, `${item.name} is on the list`, renderStockCheck(store.shopping.list()));
-        return;
-      }
-      const checking = item.state !== "checked";
-      if (item.state !== "stocked") await update(event, item.id, checking ? "check" : "uncheck");
-      await acknowledge(event, checking ? `${item.name} ✓` : `${item.name} back on the list`, renderShoppingList(store.shopping.list()));
+      const action = await update(event, item.id, change);
+      const note =
+        action.state !== "executed" ? "Not allowed right now"
+        : change === "check" ? `${item.name} ✓`
+        : change === "uncheck" ? `${item.name} back on the list`
+        : `${item.name} is on the list`;
+      await acknowledge(event, note, redraw());
     },
   };
 
-  async function controlButton(event: ButtonEvent, control: string): Promise<void> {
-    if (control === "stock") {
-      await acknowledge(event, "Stock check", renderStockCheck(store.shopping.list()));
-      return;
-    }
-    if (control === "list") {
-      await acknowledge(event, "Shopping list", renderShoppingList(store.shopping.list()));
-      return;
-    }
+  async function finish(event: ButtonEvent): Promise<void> {
     const action = ensureNotFailed(
       await dispatcher.dispatch({ type: "shopping.finish", payload: {}, idempotencyKey: `${event.id}:shopping.finish`, actor }),
     );
+    if (action.state !== "executed") {
+      await acknowledge(event, "Not allowed right now", renderShoppingList(store.shopping.list()));
+      return;
+    }
     const result = action.result as { bought?: number; open?: number } | undefined;
-    const text =
-      action.state === "executed"
-        ? `Shopping done: ${result?.bought ?? 0} bought, ${result?.open ?? 0} still on the list.`
-        : "Shopping not finished: action not allowed right now.";
-    await acknowledge(event, "Shopping done", { text });
+    await acknowledge(event, "Shopping done", {
+      text: `Shopping done: ${result?.bought ?? 0} bought, ${result?.open ?? 0} still on the list.`,
+    });
   }
 }

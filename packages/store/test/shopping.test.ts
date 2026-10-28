@@ -88,6 +88,14 @@ describe("shopping list", () => {
     expect(store.shopping.get(capers.id)?.state).toBe("stocked");
   });
 
+  it("returns an every-trip staple skipped this time to the list without counting it as bought", () => {
+    const { store } = setup();
+    const skyr = store.shopping.add({ name: "Skyr", kind: "every", actor: "operator" });
+    store.shopping.transition(skyr.id, "stock", "operator");
+    expect(store.shopping.finishTrip("operator")).toEqual({ bought: 0, open: 1 });
+    expect(store.shopping.get(skyr.id)?.state).toBe("needed");
+  });
+
   it("lists items in the order they were added", () => {
     const { store, clock } = setup();
     store.shopping.add({ name: "B", actor: "operator" });

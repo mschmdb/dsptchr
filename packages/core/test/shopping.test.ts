@@ -29,6 +29,15 @@ describe("parseShoppingInput", () => {
     ]);
   });
 
+  it("splits a comma before a number when no digit precedes it", () => {
+    expect(parseShoppingInput("Milch,2 Gurken").items).toEqual([{ name: "Milch" }, { name: "Gurken", quantity: "2" }]);
+  });
+
+  it("rejects quantities longer than 20 characters", () => {
+    const text = `${"1".repeat(21)} Milch`;
+    expect(parseShoppingInput(text)).toEqual({ items: [], rejected: [text] });
+  });
+
   it("keeps a number that is part of the name when nothing follows it", () => {
     expect(parseShoppingInput("7up").items).toEqual([{ name: "7up" }]);
     expect(parseShoppingInput("42").items).toEqual([{ name: "42" }]);
@@ -99,5 +108,9 @@ describe("afterTrip", () => {
     expect(afterTrip("once", "needed")).toBe("keep");
     expect(afterTrip("empty", "stocked")).toBe("keep");
     expect(afterTrip("every", "needed")).toBe("keep");
+  });
+
+  it("puts an every-trip staple skipped this time back on the list", () => {
+    expect(afterTrip("every", "stocked")).toBe("needed");
   });
 });

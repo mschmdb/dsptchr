@@ -1,5 +1,5 @@
 import { MAX_BUTTON_DATA_BYTES } from "@dsptchr/channels";
-import { MAX_SHOPPING_NAME, SHOPPING_KINDS } from "@dsptchr/core";
+import { MAX_SHOPPING_NAME, MAX_SHOPPING_QUANTITY, SHOPPING_KINDS } from "@dsptchr/core";
 import { z } from "zod";
 
 const buttonSchema = z.strictObject({
@@ -49,7 +49,7 @@ export const knowledgeWriteSchema = z.strictObject({
 
 export const shoppingAddSchema = z.strictObject({
   name: z.string().trim().min(1).max(MAX_SHOPPING_NAME),
-  quantity: z.string().trim().min(1).max(20).optional(),
+  quantity: z.string().trim().min(1).max(MAX_SHOPPING_QUANTITY).optional(),
   kind: z.enum(SHOPPING_KINDS).optional(),
 });
 

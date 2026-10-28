@@ -9,6 +9,7 @@ export type ShoppingState = (typeof SHOPPING_STATES)[number];
 export type ShoppingEvent = "check" | "uncheck" | "need" | "stock";
 
 export const MAX_SHOPPING_NAME = 60;
+export const MAX_SHOPPING_QUANTITY = 20;
 
 export interface ShoppingItem {
   id: string;
@@ -41,6 +42,8 @@ export function nextShoppingState(kind: ShoppingKind, from: ShoppingState, event
 
 // What finishing a trip does to one item.
 export function afterTrip(kind: ShoppingKind, state: ShoppingState): ShoppingState | "remove" | "keep" {
+  // An every-trip staple marked as in stock skipped one trip only.
+  if (kind === "every" && state === "stocked") return "needed";
   if (state !== "checked") return "keep";
   if (kind === "once") return "remove";
   return kind === "every" ? "needed" : "stocked";
@@ -58,17 +61,17 @@ export interface ParsedShoppingItem {
 const QUANTITY = /^(\d+(?:[.,]\d+)?\s*(?:x|×|g|kg|ml|l|stk\.?|pck\.?)?)\s+(\S.*)$/i;
 
 // "Milch, 2 Gurken, 1,5 l Saft" -> items. A comma between digits is a decimal comma.
-// Overlong names are rejected, not cut.
+// Overlong names and quantities are rejected, not cut.
 export function parseShoppingInput(text: string): { items: ParsedShoppingItem[]; rejected: string[] } {
   const items: ParsedShoppingItem[] = [];
   const rejected: string[] = [];
-  for (const part of text.split(/,(?!\d)|[;\n]/)) {
+  for (const part of text.split(/(?<!\d),|,(?!\d)|[;\n]/)) {
     const clean = part.trim().replace(/\s+/g, " ");
     if (clean === "") continue;
     const match = QUANTITY.exec(clean);
     const item: ParsedShoppingItem =
       match === null ? { name: clean } : { name: match[2] ?? clean, quantity: (match[1] ?? "").trim() };
-    if (item.name.length > MAX_SHOPPING_NAME) rejected.push(clean);
+    if (item.name.length > MAX_SHOPPING_NAME || (item.quantity?.length ?? 0) > MAX_SHOPPING_QUANTITY) rejected.push(clean);
     else items.push(item);
   }
   return { items, rejected };

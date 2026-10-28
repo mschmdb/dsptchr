@@ -93,7 +93,7 @@ export function shoppingRepo(db: Db, audit: AuditLog, now: () => number, newId: 
         for (const item of list()) {
           const next = afterTrip(item.kind, item.state);
           if (next === "keep") continue;
-          bought++;
+          if (item.state === "checked") bought++;
           if (next === "remove") db.run("DELETE FROM shopping_items WHERE id = :id", { id: item.id });
           else db.run("UPDATE shopping_items SET state = :next, updated_at = :at WHERE id = :id", { id: item.id, next, at });
         }
