@@ -469,35 +469,74 @@ describe("orchestrator shopping list", () => {
     });
   });
 
-  it("updates and removes items through the gate", async () => {
+  it("updates and removes items through the gate, one receipt per call", async () => {
     const steps: Step[] = [];
     const h = setup(steps);
     const milk = h.store.shopping.add({ name: "Milch", actor: "operator" });
     const salt = h.store.shopping.add({ name: "Salz", kind: "empty", actor: "operator" });
     steps.push(
-      { tool: "update_shopping_item", input: { item_id: milk.id, action: "remove" } },
-      { tool: "update_shopping_item", input: { item_id: salt.id, action: "stock" } },
+      {
+        tool: "update_shopping_items",
+        input: { changes: [{ item_id: milk.id, action: "remove" }, { item_id: salt.id, action: "stock" }] },
+      },
       { text: "Done." },
     );
     await h.orchestrator.handle(text("Milch streichen, Salz ist noch da"));
     expect(h.store.shopping.get(milk.id)).toBeUndefined();
     expect(h.store.shopping.get(salt.id)?.state).toBe("stocked");
-    expect(h.sent.at(-1)?.text).toBe("Done.\n\n✓ Removed \"Milch\" from the shopping list.\n✓ Marked \"Salz\" as in stock.");
+    expect(h.sent.at(-1)?.text).toBe('Done.\n\n✓ Shopping list: removed "Milch"; "Salz" in stock.');
   });
 
-  it("returns fixable errors for unknown items and invalid transitions", async () => {
+  it("cleans up more items than the per-message limit in one call by editing, not re-adding", async () => {
+    const steps: Step[] = [];
+    const h = setup(steps);
+    const items = Array.from({ length: 13 }, (_, i) => h.store.shopping.add({ name: `- item ${i}`, actor: "operator" }));
+    steps.push(
+      { tool: "update_shopping_items", input: { changes: items.map((it, i) => ({ item_id: it.id, action: "edit", name: `Item ${i}`, quantity: null })) } },
+      { text: "Fertig." },
+    );
+    await h.orchestrator.handle(text("formatiere die Liste ohne Bindestriche"));
+    expect(h.store.shopping.list().map((i) => i.name)).toEqual(Array.from({ length: 13 }, (_, i) => `Item ${i}`));
+    expect(h.sent.at(-1)?.text).toMatch(/^Fertig\.\n\n✓ Shopping list: "- item 0" is now "Item 0"; /);
+  });
+
+  it("changes nothing when one entry of a batch is invalid", async () => {
     const steps: Step[] = [];
     const h = setup(steps);
     const milk = h.store.shopping.add({ name: "Milch", actor: "operator" });
+    const eggs = h.store.shopping.add({ name: "Eier", actor: "operator" });
     steps.push(
-      { tool: "update_shopping_item", input: { item_id: "nope", action: "check" } },
-      { tool: "update_shopping_item", input: { item_id: milk.id, action: "stock" } },
+      { tool: "update_shopping_items", input: { changes: [{ item_id: milk.id, action: "remove" }, { item_id: "nope", action: "check" }] } },
+      { tool: "update_shopping_items", input: { changes: [{ item_id: milk.id, action: "stock" }] } },
+      { tool: "update_shopping_items", input: { changes: [{ item_id: eggs.id, action: "edit", name: "milch" }] } },
+      { tool: "update_shopping_items", input: { changes: [{ item_id: eggs.id, action: "check" }, { item_id: eggs.id, action: "uncheck" }] } },
       { text: "Sorry." },
     );
     await h.orchestrator.handle(text("x"));
     expect(resultOf(h.createMessage.requests[1])).toMatch(/not found/);
     expect(resultOf(h.createMessage.requests[2])).toMatch(/one-off item cannot be in stock/);
-    expect(h.store.shopping.get(milk.id)?.state).toBe("needed");
+    expect(resultOf(h.createMessage.requests[3])).toMatch(/already named milch/);
+    expect(resultOf(h.createMessage.requests[4])).toMatch(/appears twice/);
+    expect(h.store.shopping.list().map((i) => [i.name, i.state])).toEqual([
+      ["Milch", "needed"],
+      ["Eier", "needed"],
+    ]);
+  });
+
+  it("allows a rename onto the name of an item removed in the same call", async () => {
+    const steps: Step[] = [];
+    const h = setup(steps);
+    const old = h.store.shopping.add({ name: "Tomaten", actor: "operator" });
+    const dup = h.store.shopping.add({ name: "- 2 Tomaten", actor: "operator" });
+    steps.push(
+      {
+        tool: "update_shopping_items",
+        input: { changes: [{ item_id: dup.id, action: "edit", name: "Tomaten", quantity: "2" }, { item_id: old.id, action: "remove" }] },
+      },
+      { text: "Ok." },
+    );
+    await h.orchestrator.handle(text("Tomaten zusammenführen"));
+    expect(h.store.shopping.list()).toMatchObject([{ name: "Tomaten", quantity: "2" }]);
   });
 });
 

@@ -275,6 +275,26 @@ describe("shopping.update", () => {
     expect(result).toMatchObject({ state: "executed", result: { itemId: item.id, state: "checked" } });
   });
 
+  it("renames an item and clears its quantity", async () => {
+    const { executor } = setup();
+    const item = store.shopping.add({ name: "- rotwein", quantity: "1", actor: "test" });
+    const result = await executor.execute(approved("shopping.update", { itemId: item.id, event: "edit", name: "Rotwein", quantity: null }).id);
+    expect(result).toMatchObject({ state: "executed", result: { itemId: item.id, state: "needed" } });
+    expect(store.shopping.get(item.id)).toMatchObject({ name: "Rotwein", quantity: undefined });
+  });
+
+  it.each([
+    ["nothing to change", { event: "edit" }],
+    ["name too long", { event: "edit", name: "x".repeat(61) }],
+    ["quantity too long", { event: "edit", quantity: "q".repeat(21) }],
+    ["name on a state change", { event: "check", name: "x" }],
+  ])("fails on invalid edit: %s", async (_name, change) => {
+    const { executor } = setup();
+    const item = store.shopping.add({ name: "Milch", actor: "test" });
+    expect((await executor.execute(approved("shopping.update", { itemId: item.id, ...change }).id)).state).toBe("failed");
+    expect(store.shopping.get(item.id)).toMatchObject({ name: "Milch", state: "needed" });
+  });
+
   it("removes an item", async () => {
     const { executor } = setup();
     const item = store.shopping.add({ name: "Milch", actor: "test" });

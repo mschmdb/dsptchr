@@ -36,10 +36,7 @@ export function shoppingRepo(db: Db, audit: AuditLog, now: () => number, newId: 
     get,
 
     add(input: AddShoppingItem): ShoppingItem {
-      const name = input.name.normalize("NFC").trim().replace(/\s+/g, " ");
-      if (name === "" || name.length > MAX_SHOPPING_NAME) {
-        throw new Error(`shopping item name must have 1 to ${MAX_SHOPPING_NAME} characters`);
-      }
+      const name = cleanName(input.name);
       const key = shoppingKey(name);
       return db.transaction(() => {
         const at = now();
@@ -77,6 +74,27 @@ export function shoppingRepo(db: Db, audit: AuditLog, now: () => number, newId: 
       });
     },
 
+    // Renames an item or changes its quantity; null clears the quantity.
+    edit(id: string, changes: { name?: string | undefined; quantity?: string | null | undefined }, actor: string): ShoppingItem {
+      return db.transaction(() => {
+        const item = mustGet(id);
+        const name = changes.name === undefined ? item.name : cleanName(changes.name);
+        const key = shoppingKey(name);
+        const clash = db.get("SELECT id FROM shopping_items WHERE key = :key AND id != :id", { key, id });
+        if (clash !== undefined) throw new Error(`an item named ${name} is already on the list`);
+        const quantity = changes.quantity === undefined ? item.quantity : (changes.quantity ?? undefined);
+        db.run("UPDATE shopping_items SET name = :name, key = :key, quantity = :quantity, updated_at = :at WHERE id = :id", {
+          id,
+          name,
+          key,
+          quantity,
+          at: now(),
+        });
+        audit.append({ actor, event: "shopping.edited", subject: id });
+        return mustGet(id);
+      });
+    },
+
     remove(id: string, actor: string): void {
       db.transaction(() => {
         mustGet(id);
@@ -109,6 +127,14 @@ export function shoppingRepo(db: Db, audit: AuditLog, now: () => number, newId: 
   function list(): ShoppingItem[] {
     return db.all("SELECT * FROM shopping_items ORDER BY created_at, rowid").map(toItem);
   }
+}
+
+function cleanName(raw: string): string {
+  const name = raw.normalize("NFC").trim().replace(/\s+/g, " ");
+  if (name === "" || name.length > MAX_SHOPPING_NAME) {
+    throw new Error(`shopping item name must have 1 to ${MAX_SHOPPING_NAME} characters`);
+  }
+  return name;
 }
 
 export type ShoppingRepo = ReturnType<typeof shoppingRepo>;

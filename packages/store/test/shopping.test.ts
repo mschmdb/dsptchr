@@ -65,6 +65,34 @@ describe("shopping list", () => {
     expect(() => store.shopping.transition("nope", "check", "operator")).toThrow(/not found/);
   });
 
+  it("renames an item and changes or clears its quantity", () => {
+    const { store } = setup();
+    const item = store.shopping.add({ name: "- 2 Dosen Bohnen", actor: "operator" });
+    expect(store.shopping.edit(item.id, { name: "weiße Bohnen", quantity: "2 Dosen" }, "operator")).toMatchObject({
+      id: item.id,
+      name: "weiße Bohnen",
+      quantity: "2 Dosen",
+      state: "needed",
+    });
+    expect(store.shopping.edit(item.id, { quantity: null }, "operator").quantity).toBeUndefined();
+    expect(store.shopping.add({ name: "Weiße Bohnen", actor: "operator" }).id).toBe(item.id);
+  });
+
+  it("refuses a rename onto another item's name", () => {
+    const { store } = setup();
+    store.shopping.add({ name: "Milch", actor: "operator" });
+    const other = store.shopping.add({ name: "milk", actor: "operator" });
+    expect(() => store.shopping.edit(other.id, { name: "MILCH" }, "operator")).toThrow(/already on the list/);
+    expect(store.shopping.edit(other.id, { name: "Milk" }, "operator").name).toBe("Milk");
+  });
+
+  it("refuses edits of unknown items and invalid names", () => {
+    const { store } = setup();
+    const item = store.shopping.add({ name: "Milch", actor: "operator" });
+    expect(() => store.shopping.edit("nope", { name: "x" }, "operator")).toThrow(/not found/);
+    expect(() => store.shopping.edit(item.id, { name: " " }, "operator")).toThrow();
+  });
+
   it("removes an item", () => {
     const { store } = setup();
     const item = store.shopping.add({ name: "Eier", actor: "operator" });

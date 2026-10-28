@@ -25,9 +25,18 @@ export const addToShoppingListInput = z.strictObject({
     .min(1)
     .max(20),
 });
-export const updateShoppingItemInput = z.strictObject({
-  item_id: z.string().min(1).max(64),
-  action: z.enum(["check", "uncheck", "need", "stock", "remove"]),
+export const updateShoppingItemsInput = z.strictObject({
+  changes: z
+    .array(
+      z.strictObject({
+        item_id: z.string().min(1).max(64),
+        action: z.enum(["check", "uncheck", "need", "stock", "remove", "edit"]),
+        name: z.string().trim().min(1).max(60).nullable().optional(),
+        quantity: z.string().trim().max(20).nullable().optional(),
+      }),
+    )
+    .min(1)
+    .max(30),
 });
 
 export const searchCalendarInput = z.strictObject({
@@ -56,7 +65,7 @@ export type ReadStateInput = z.infer<typeof readStateInput>;
 export type CreateTodoInput = z.infer<typeof createTodoInput>;
 export type UpdateTodoInput = z.infer<typeof updateTodoInput>;
 export type AddToShoppingListInput = z.infer<typeof addToShoppingListInput>;
-export type UpdateShoppingItemInput = z.infer<typeof updateShoppingItemInput>;
+export type UpdateShoppingItemsInput = z.infer<typeof updateShoppingItemsInput>;
 
 // The orchestrator's whole capability surface (AR-1): read state, propose todo, shopping
 // list and knowledge changes.
@@ -70,7 +79,7 @@ export interface OrchestratorTools {
   create_todo(input: CreateTodoInput): Promise<string>;
   update_todo(input: UpdateTodoInput): Promise<string>;
   add_to_shopping_list(input: AddToShoppingListInput): Promise<string>;
-  update_shopping_item(input: UpdateShoppingItemInput): Promise<string>;
+  update_shopping_items(input: UpdateShoppingItemsInput): Promise<string>;
 }
 
 // Thrown by handlers for input the model can fix; it goes back as an error tool result.
@@ -87,7 +96,7 @@ export const INPUT_SCHEMAS = {
   create_todo: createTodoInput,
   update_todo: updateTodoInput,
   add_to_shopping_list: addToShoppingListInput,
-  update_shopping_item: updateShoppingItemInput,
+  update_shopping_items: updateShoppingItemsInput,
 } as const;
 
 const DUE_AT = {
@@ -214,16 +223,29 @@ export const TOOL_DEFINITIONS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
-    name: "update_shopping_item",
+    name: "update_shopping_items",
     description:
-      "Change one shopping list item; take item_id from read_state shopping. check: in the cart. uncheck: back to needed. need: a staple has run out. stock: a staple is at home, off the list. remove: delete the item for good, staples included.",
+      "Change shopping list items in one call; take item_id from read_state shopping, each item at most once. check: in the cart. uncheck: back to needed. need: a staple has run out. stock: a staple is at home, off the list. remove: delete the item for good, staples included. edit: fix name and/or quantity (quantity \"\" clears it); use edit to correct items, never remove and add again. All changes are checked first; if one is invalid, none is made.",
     input_schema: {
       type: "object",
       properties: {
-        item_id: { type: "string" },
-        action: { type: "string", enum: ["check", "uncheck", "need", "stock", "remove"] },
+        changes: {
+          type: "array",
+          maxItems: 30,
+          items: {
+            type: "object",
+            properties: {
+              item_id: { type: "string" },
+              action: { type: "string", enum: ["check", "uncheck", "need", "stock", "remove", "edit"] },
+              name: { type: ["string", "null"], description: "edit only: new name, at most 60 characters." },
+              quantity: { type: ["string", "null"], description: "edit only: new amount, at most 20 characters; \"\" clears it." },
+            },
+            required: ["item_id", "action"],
+            additionalProperties: false,
+          },
+        },
       },
-      required: ["item_id", "action"],
+      required: ["changes"],
       additionalProperties: false,
     },
   },

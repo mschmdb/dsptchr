@@ -76,8 +76,9 @@ export function createOperatorHandler({ store, dispatcher, timeZone, now, orches
       await confirmation;
       return;
     }
-    if (START_WORDS.has(word)) {
-      if (store.flags.isPaused()) store.flags.setPaused(false, ACTOR);
+    // Resume words only act while paused; otherwise "weiter" is an ordinary answer to the orchestrator.
+    if (START_WORDS.has(word) && store.flags.isPaused()) {
+      store.flags.setPaused(false, ACTOR);
       await reply(event, "Resumed.");
       return;
     }

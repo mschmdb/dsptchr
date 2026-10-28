@@ -70,6 +70,15 @@ describe("failures", () => {
   });
 });
 
+describe("resume words while running", () => {
+  it("passes \"weiter\" to normal handling when nothing is paused", async () => {
+    const h = setup();
+    await h.handler.handle(text("weiter"));
+    expect(h.sent[0]?.text).not.toBe("Resumed.");
+    expect(h.store.todos.listActive()).toMatchObject([{ text: "weiter" }]);
+  });
+});
+
 describe("kill switch", () => {
   it.each(["stop", "Stopp", " STOP "])("pauses on %j and confirms first", async (word) => {
     const h = setup();

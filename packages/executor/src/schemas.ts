@@ -53,10 +53,21 @@ export const shoppingAddSchema = z.strictObject({
   kind: z.enum(SHOPPING_KINDS).optional(),
 });
 
-export const shoppingUpdateSchema = z.strictObject({
-  itemId: z.string().min(1).max(64),
-  event: z.enum(["check", "uncheck", "need", "stock", "remove"]),
-});
+export const shoppingUpdateSchema = z.union([
+  z.strictObject({
+    itemId: z.string().min(1).max(64),
+    event: z.enum(["check", "uncheck", "need", "stock", "remove"]),
+  }),
+  // Rename or change the quantity; null clears it.
+  z
+    .strictObject({
+      itemId: z.string().min(1).max(64),
+      event: z.literal("edit"),
+      name: z.string().trim().min(1).max(MAX_SHOPPING_NAME).optional(),
+      quantity: z.string().trim().min(1).max(MAX_SHOPPING_QUANTITY).nullable().optional(),
+    })
+    .refine((e) => e.name !== undefined || e.quantity !== undefined, { message: "edit needs name or quantity" }),
+]);
 
 export const shoppingFinishSchema = z.strictObject({});
 
